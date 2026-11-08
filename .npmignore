@@ -1,0 +1,13 @@
+# 发布排除：编辑期留下的备份绝不能进 npm 包
+*.bak-*
+*.backup
+
+# 用户数据与运行时产物（只发 data/inventory.example.json）
+data/
+!data/inventory.example.json
+
+# 仓库/本机杂项
+.git/
+.gitignore
+.npmrc
+*.log

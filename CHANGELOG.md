@@ -2,6 +2,14 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.11] - 2026-11-08
+
+**只修发布打包，代码零改动。**
+
+- **缺陷**：`dsh-xwide-thought-chain@0.1.10` 的 npm 包里混进 **20 个 `.bak-*` 编辑备份**（1.4 MB／33 文件）。根因：npm 的规则是 **`package.json` 的 `files` 白名单赢过 `.npmignore`** —— 我加了 `.npmignore` 排除 `*.bak-*`，实测对 `files:["assets/"]` 里的备份完全无效（预演读数 `bak_in_package=20`、`total files: 33`）。
+- **修法**：发布不再直接指向插件目录，而是把该发的文件复制到工作区里的**干净暂存目录**再 `npm publish`——插件目录里的真备份一个都不动。判定器＝`npm pack` 后的清单里 `.bak` 计数必须为 **0**，且文件数与体积逐版对比。
+- 0.1.10 在 npm 上保留原样（npm 不允许覆盖同版本号；72 小时内可 unpublish，需要就说）。
+
 ## [0.1.10] - 2026-11-08
 
 **排版拉开 ＋ 档位配色（使用者看图说「排得太密了」＋「省快准用颜色区分」）。**
