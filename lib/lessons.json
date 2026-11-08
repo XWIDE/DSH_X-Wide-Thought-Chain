@@ -1,0 +1,98 @@
+[
+  {
+    "id": "L1",
+    "when": "要交付界面上的东西（按钮/面板/侧栏一行/进度条）",
+    "wrong": "v0.1.5 我把 settings.register 调用成功当成「设置页做好了」，连报两轮「已生效」，你回「侧栏看『X-Wide 思考链』没有呀，你怎么会事」。",
+    "right": "顺着宿主源码量到客户端入口 `exports.inject = []` ⇒ 宿主不注入 `ctx.slots` ⇒ 整块注册抛 `cannot get property \"slots\" without inject`。改 `exports.inject = [\"slots\",\"locale\"]` 后你的截图里侧栏那行真出现了。",
+    "evidence": "宿主报错原文 + 两张真机截图（侧栏行 + 页面渲染）",
+    "rule": "显示类交付只认渲染证据：宿主 API 调用成功≠界面存在；判据＝页面上真看得见（截图/DOM），拿不到就直说没验到。"
+  },
+  {
+    "id": "L2",
+    "when": "写宿主插件的入口模块",
+    "wrong": "照抄「我不用任何服务」的直觉写了空数组 `exports.inject = []`，把注入通道关死了。",
+    "right": "官方样本在 `dsh-ui-tools/lib/client.js` 声明了 5 个服务；门是模块上的 `exports.inject`，不是 package.json 里的 `dsh.client.inject`。",
+    "evidence": "样本 client.js:129；本机实测空数组→抛错、补齐→渲染",
+    "rule": "写宿主代码前先 grep 官方样本怎么用（inject/服务名/槽名），禁凭印象造 API。"
+  },
+  {
+    "id": "L3",
+    "when": "给面板/路由 handler 加批量读写函数",
+    "wrong": "v0.1.9 首跑探针 6 条 FAIL：档位「快」点了没反应、自存档位报错、速度体检报错——我在模块顶层函数里引用了只在 `apply(ctx, config)` 作用域里存在的 `config`。",
+    "right": "给每个顶层函数显式加 `config` 形参并在调用点传进去，6 条当场转绿。",
+    "evidence": "探针读数：`prompt.enabled=undefined、maxFindings=7` → 修后 36 条 PASS",
+    "rule": "模块顶层函数不许偷外层作用域的变量：需要的配置一律当参数传进来。"
+  },
+  {
+    "id": "L4",
+    "when": "在插件源码里写路径",
+    "wrong": "我在 `about()` 里写死了自己的绝对工作区路径，被自家判分器 T5 打回（`GATE FAIL (2/3)`），而同一个文件第 12 行就写着「零绝对路径字面量」。",
+    "right": "改成 `os.homedir()` / `DSH_WORKSPACE` 推导候选路径。",
+    "evidence": "`T5 插件代码零绝对路径字面量 [缺项] index.js:226` → 修后 JUDGE 11/11",
+    "rule": "插件源码零绝对路径字面量：路径从 import.meta.url / os.homedir() / 环境变量派生。"
+  },
+  {
+    "id": "L5",
+    "when": "做「退回/撤销」这类会读写备份的功能",
+    "wrong": "`rollback(restore=true)` 挑目录里最新的 `settings.*`，而它自己每次退回也往同一目录写 `settings.pre-rollback-*` ⇒ 第二次退回取到第一次退回时的快照，连退两次把设置从 8 个键退成 1 个键（真数据损失）。这是判分器 T6 抓的，不是我。",
+    "right": "改动前快照独占前缀 `settings.write-*`，退回只认这一类；`pre-rollback-*` 只当后悔药不参与退回链。",
+    "evidence": "`一键退回生效=False`＋盘上实测「退完只剩 {\"chain.maxFindings\":7}」→ 修后工具层 11/11",
+    "rule": "每类快照独占一个文件名前缀，回滚只认自己那一类；写完回滚功能必须连退两次验一遍。"
+  },
+  {
+    "id": "L6",
+    "when": "发布 npm 包",
+    "wrong": "直接对插件目录 `npm publish`，把 33 个文件里的 **20 个 `.bak-*` 编辑备份**发上了公网（0.1.10）。我先加 `.npmignore` 以为挡住了——npm 的规则是 `files` 白名单赢过 `.npmignore`。",
+    "right": "改成把该发的文件复制进干净暂存目录再发；判定器＝pack 后包内清单 `.bak` 计数必须为 0。",
+    "evidence": "`bak_in_package=20 / total files: 33` → 暂存发布 `staged=13 bak=0`、线上 shasum 与本地同哈希",
+    "rule": "发布从干净暂存副本发，判定器＝pack 清单里备份数=0、用户数据=0；发完用 registry 的 shasum 比对确认线上那份＝我验的那份。"
+  },
+  {
+    "id": "L7",
+    "when": "说「已发布/已生效/下完了」这类状态词",
+    "wrong": "npm 自报发布成功后 `dist-tags.latest` 还停在旧版，那一刻我不能说「线上好了」。",
+    "right": "等同步后拉 registry 元数据比对 shasum/integrity，两条 match=true 才出口。",
+    "evidence": "`registry_latest=0.1.11`、`shasum match=true`、`integrity match=true`",
+    "rule": "状态词只认自己量到的远端读数（字节数/版本号/哈希）；工具自报的成功不算数。"
+  },
+  {
+    "id": "L8",
+    "when": "要撤销一个已经发出去的不可逆产物",
+    "wrong": "`npm unpublish` 被 2FA 令牌政策挡死（403）。这时最容易顺口说一句「已删除」。",
+    "right": "同一条命令位换 `npm deprecate` 挂上警告文案，并明说：那个版本还在网上能下载，只是带警告。",
+    "evidence": "`403 … Granular access tokens that bypass two-factor authentication may not perform this action` → `deprecate_exit=0`＋registry 里警告文案在",
+    "rule": "不可逆动作失败就给同位的次优解（deprecate/隔离区改名），并如实说清「没删掉」的边界。"
+  },
+  {
+    "id": "L9",
+    "when": "鉴权/连接类报错要下结论",
+    "wrong": "看到 `ENEEDAUTH` 我先判成「你的令牌失效了」——真因是这台机器没有 `.npmrc`；后来在暂存目录里 publish 又报一次，因为 npm 的 project 级 `.npmrc` 只读当前工作目录、不往上层找。",
+    "right": "用环境变量 + `${NPM_TOKEN}` 插值配置，在工作区根跑、把包路径当参数传；令牌不进命令行也不进输出。",
+    "evidence": "`whoami=x-wide`（令牌有效）；补 `.npmrc` 后发布 exit 0",
+    "rule": "报错先量它到底缺什么（本机配置/路径解析），别拿最省事的解释（「你令牌坏了」）交差。"
+  },
+  {
+    "id": "L10",
+    "when": "调字号、颜色、间距这类界面质量",
+    "wrong": "配色凭眼看，第一版红 `#e0707c` 其实只有 **4.34:1**（低于 4.5:1 门槛）。",
+    "right": "按 WCAG 亮度公式实算对比度（从截图取底色 `#2b2f36`），不达标的换掉；并公开边界：同批兜底色放浅底只有 2.1–2.3:1。",
+    "evidence": "实算 5.61 / 5.59 / 5.98 / 5.45（修后）vs 4.34（第一版）",
+    "rule": "界面质量类改动用尺子实算（对比度/字号档位/命中区≥32px），并把不达标的那条主动写出来。"
+  },
+  {
+    "id": "L11",
+    "when": "用户拿截图说话（「排得太密了」「用颜色区分一下」）",
+    "wrong": "我此前只能断言 CSS 数值，看不到真渲染，连着几轮都在猜密度够不够。",
+    "right": "把你的两张截图当第一手证据：照它量出间距档位（整页 34px／分类 22px＋分隔线／每项 10px）并按语义上色。",
+    "evidence": "截图＝本插件第一次真渲染证据；侧栏行可见 ⇒ 反证 v0.1.8 的 inject 修法在野外生效",
+    "rule": "用户的截图优先于我的代码断言：从图里读数定标准，别用「代码里写了」顶回去。"
+  },
+  {
+    "id": "L12",
+    "when": "决定要给用户几个可调项 / 怎么说明",
+    "wrong": "我先给三个参数对应你说的「守卫、记忆、上下文」几大块，你说「对应不了大的分类，应该有一个更清晰的分类」；也没说清依赖关系（你要求「发布时要说明」）。",
+    "right": "改成四个分类 ＋ 一键档位 ＋ 滑条，并在 README/Release 明写「零依赖、不需要装任何其他插件」；说明里带实测秒数（注入段 700→420 字每轮省约 1.7 秒）。",
+    "evidence": "本机实测 decode 80.2 tok/s、冷 prefill 112.8 tok/s、前缀缓存省 96.2%、xhigh≈102 秒/轮",
+    "rule": "可调项按你的心智分块（不是按我代码的字段）；每项标实测代价；发布必须写清依赖边界与生效范围（新会话/重启后）。"
+  }
+]

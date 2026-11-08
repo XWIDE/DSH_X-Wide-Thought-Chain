@@ -1,6 +1,6 @@
 ![X-WIDE · I BELIEVE](./assets/xwide.png)
 
-# DSH-X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.11
+# DSH-X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.12
 
 > 把一条排障/交付的**思考链**装进 DeepSeek Harness，外加一个**零依赖开机自检**：DSH 升级、安装目录改名、插件丢失时，不再靠人肉从头摸形状。
 
@@ -96,6 +96,14 @@ node lib/selfcheck.mjs --deep   # 连 profile 的 local-plugins 一起扫路径�
 再加 **「把这组当前值存成档位」**：自存档位写进 `data/presets.json`，可一键应用、可删；内置四组不可覆盖。每次应用档位＝先备份再批量写，`dsh_xwide_thought_chain_rollback(restore=true)` 照旧退回。
 
 **滑条**：六个数字项（回显条数 1–30、失败阈值 1–5、注入字数 100–1500、注入顺序 0–999、备份份数 1–50、陈旧日志 0–336 小时）拖滑块带实时数值与区间，**松手才写盘**（不是一路刷爆备份）。
+
+## 4.2 经验库：让它记住「做错→做对」（v0.1.12）
+
+插件带一份 **`lib/lessons.json`**：把历次真返工蒸成一条条规则，每条都写清 **触发条件 / 当时做错的 / 后来做对的 / 实测读数**。随包发布、只读，卸载随包走。
+
+- **每轮开工就带着**：默认注入前 6 条到 systemPrompt（单独一段，不占六步那段的字数预算）。可调：`prompt.lessons=false` 关掉；`prompt.lessonsCount` 0–12 决定注入几条。代价标在说明里——每条≈40 字（约 20 token），6 条≈120 token，本机冷 prefill 112.8 tok/s ⇒ 一轮约多 1 秒；前缀缓存命中时几乎免费。
+- **看得见**：设置页有一栏「这一版学到的规则」全量列出；面板「怎么运作 · 记忆在哪」也会打印它的路径与条数（读不到会明说）。
+- **它记的是方法不是聊天记录**：例——「显示类交付只认渲染证据，宿主 API 调用成功≠界面存在」「顶层函数不许偷外层作用域的 config」「每类备份独占文件名前缀，写完回滚功能必须连退两次验一遍」「发布从干净暂存副本发，判定器＝pack 清单里备份数=0」「状态词只认自己量到的远端读数，工具自报的成功不算数」。
 
 **排版与配色（v0.1.10）**：整页间距 34px、分类之间 22px＋分隔线、每项上下 10px、说明行距 1.7——不挤。四组档位用颜色一眼分开：**省＝绿**（`--dsw-alias-state-success-primary`）、**快＝蓝**（`--dsw-alias-brand-primary`）、**准＝琥珀**（`--dsw-alias-state-warn-primary`）、**排障＝红**（`--dsw-alias-state-error-primary`），自存档位随正文色；全部走宿主主题变量，深浅主题都由宿主给对比度。兜底色实测对深色底 5.45–5.98:1（WCAG 门槛 4.5）。
 

@@ -21,13 +21,26 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const name = "dsh-xwide-thought-chain";
-export const version = "0.1.11";
+export const version = "0.1.12";
 export const inject = ["tools", "systemPrompt", "settings"];
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA = path.join(HERE, "data");
 const BACKUPS = path.join(DATA, "backups");
 const SETTINGS_FILE = path.join(DATA, "settings.json");
+// 经验库：这一版从「做错→做对」里蒸出来的规则（随包发布，只读；顶层函数不偷外层 config）
+const LESSONS_FILE = path.join(HERE, "lib", "lessons.json");
+function readLessons() {
+  try {
+    const j = JSON.parse(fs.readFileSync(LESSONS_FILE, "utf8"));
+    return Array.isArray(j) ? j.filter(x => x && x.rule) : [];
+  } catch { return []; }
+}
+function lessonLines(n) {
+  const all = readLessons();
+  const k = Math.max(0, Math.min(all.length, Number(n) || 0));
+  return all.slice(0, k).map(x => "· " + x.rule);
+}
 const JOURNAL = path.join(DATA, "journal.jsonl");
 const BOOT_LOG = path.join(DATA, "boot.log");
 
@@ -55,6 +68,8 @@ export const SETTINGS_SCHEMA = [
   { key: "prompt.order", type: "number", group: "prompt", min: 0, max: 999, def: 138, desc: "systemPrompt 段落顺序（越小越靠前）。" },
   { key: "prompt.maxChars", type: "number", group: "prompt", min: 100, max: 1500, def: 700, desc: "注入文本最长字符数（每轮一次）。实测：700→420 字每轮约省 1.7 秒等量 prefill（冷读 112.8 tok/s）；前缀缓存命中约 90%，所以「稳定」比「短」更省。" },
   { key: "write.journal", type: "boolean", group: "disk", def: true, desc: "是否把每次改设置追加进 data\\journal.jsonl（退回机制的账本）。" },
+  { key: "prompt.lessons", type: "boolean", group: "prompt", def: true, desc: "把「这一版学到的规则」（lib\\lessons.json，做错→做对蒸出来的一句条）单独注入 systemPrompt 一段，让下个会话开工就带着这些坑。关掉只剩六步。" },
+  { key: "prompt.lessonsCount", type: "number", group: "prompt", min: 0, max: 12, def: 6, desc: "注入前几条规则（0–12）。每条≈40 字（约 20 token）：6 条≈120 token；本机冷 prefill 112.8 tok/s ⇒ 一轮约多 1 秒，前缀缓存命中时几乎免费。全 12 条看得到面板里。" },
   { key: "write.maxBackups", type: "number", group: "disk", min: 1, max: 50, def: 10, desc: "settings.json 保留几份历史备份（data\\backups\\）。1–50。" },
   { key: "safety.allowMutate", type: "boolean", group: "disk", def: false, desc: "总开关：false＝自检只报问题 + 给命令，绝不自动改任何东西；true＝允许插件自己写文件（仍先备份，且只写插件自己的 data\\）。" },
 ];
@@ -236,12 +251,19 @@ const WS_CANDIDATES = [
 ].filter(Boolean);
 function exists(p) { try { return fs.existsSync(p); } catch { return false; } }
 function countLines(p) { try { return fs.readFileSync(p, "utf8").trim().split(/\r?\n/).filter(Boolean).length; } catch { return 0; } }
-function about() {
+function about(config) {
+  const S = loadSettings(config); // 顶层函数不偷外层作用域：配置当参数传（经验库 L3）
   const lines = ["—— 这套东西怎么运作（只读盘上真值）——"];
   const baks = (() => { try { return fs.readdirSync(BACKUPS).filter(f => f.startsWith("settings.write-")).length; } catch { return 0; } })();
   lines.push("【本插件的值在哪】全在插件目录内，卸载＝删目录 + 清 profile 两处登记：");
   lines.push("  当前值：" + SETTINGS_FILE + (exists(SETTINGS_FILE) ? "" : "（还没写过，用的是内置默认）"));
   lines.push("  历史备份：" + BACKUPS + "（现 " + baks + " 份）→ 退回：dsh_xwide_thought_chain_rollback(restore=true)");
+  {
+    const ls = readLessons();
+    lines.push("  经验库（做错→做对蒸出来的规则）：" + LESSONS_FILE + "（现 " + ls.length + " 条，" + (ls.length ? "读得到" : "读不到") + "）");
+    for (const x of ls) lines.push("    · [" + x.id + "] " + x.rule);
+    lines.push("  注入几条到每轮：prompt.lessonsCount（现 " + (S["prompt.lessonsCount"] === undefined ? 6 : S["prompt.lessonsCount"]) + "，0＝不注入；全量在设置页看）");
+  }
   lines.push("  改动账本：" + JOURNAL + "（现 " + countLines(JOURNAL) + " 条：谁在什么时候把哪项从什么改成什么）");
   lines.push("  自存档位：" + PRESETS_FILE + (exists(PRESETS_FILE) ? "" : "（还没存过）") + "　装载读数：" + BOOT_LOG);
   lines.push("【怎么守住之前犯过的错】不在本插件里，在这几处（逐个实测存在性）：");
@@ -284,6 +306,19 @@ export function apply(ctx, config = {}) {
         order: Number(S["prompt.order"]) || 138,
         text: base.slice(0, Math.max(120, Number(S["prompt.maxChars"]) || 700)),
       });
+    }
+
+    // 经验库单独一段（不占六步那段的字数预算）：让下一个会话开工就带着这些坑
+    if (S["prompt.enabled"] && S["prompt.lessons"]) {
+      const ls = lessonLines(S["prompt.lessonsCount"] === undefined ? 6 : S["prompt.lessonsCount"]);
+      if (ls.length) {
+        ctx.systemPrompt.section({
+          name: "tool:xwide-thought-chain-lessons",
+          order: (Number(S["prompt.order"]) || 138) + 1,
+          text: "X-Wide 思考链·这一版学到的规则（做错→做对蒸出来的，共 " + ls.length + " 条，全量见设置页）：\n" + ls.join("\n"),
+        });
+        logBoot("host: 经验注入 " + ls.length + " 条");
+      }
     }
 
     const render = (_a, v) => [{ type: "text", text: String((v && v.text) || "") }];
@@ -390,12 +425,13 @@ export function apply(ctx, config = {}) {
               if (action === "save-preset") return reply(savePreset(String(body.name || ""), config));
               if (action === "delete-preset") return reply(deletePreset(String(body.name || "")));
               if (action === "slowcheck") { const r = slowCheck(config); return reply({ ok: true, lines: r.lines, cur: loadSettings(config) }); }
-              if (action === "about") { const r = about(); return reply({ ok: true, lines: r.lines, cur: loadSettings(config) }); }
+              if (action === "about") { const r = about(config); return reply({ ok: true, lines: r.lines, cur: loadSettings(config) }); }
               return reply({
                 ok: true, version,
                 groups: SETTINGS_GROUPS,
                 items: SETTINGS_SCHEMA.map(m => ({ key: m.key, type: m.type, group: m.group, min: m.min, max: m.max, def: m.def, desc: m.desc })),
                 presets: allPresets(),
+                lessons: readLessons(),
                 cur: loadSettings(config),
               });
             } catch (e) { logBoot("route: 异常 " + (e && e.message)); return reply({ ok: false, text: String((e && e.message) || e) }); }
