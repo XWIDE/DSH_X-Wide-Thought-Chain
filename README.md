@@ -1,12 +1,13 @@
 ![X-WIDE · I BELIEVE](./assets/xwide.png)
 
-# DSH_X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.8
+# DSH_X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.9
 
 > 把一条排障/交付的**思考链**装进 DeepSeek Harness，外加一个**零依赖开机自检**：DSH 升级、安装目录改名、插件丢失时，不再靠人肉从头摸形状。
 
 - 原创设计 & 维护：**XWIDE** — <https://github.com/XWIDE/DSH_X-Wide-Thought-Chain>
 - 许可：**MIT**（见 [LICENSE](./LICENSE)，含署名说明）· 变更历史见 [CHANGELOG.md](./CHANGELOG.md)
-- **运行时零依赖**：只用 node 内置模块，不依赖任何其他 DSH 插件；本地模型与云模型同用
+- **运行时零依赖**：`package.json` 无任何 `dependencies`——宿主侧只用 node 内置模块（`node:fs` / `node:path` / `node:url`），设置页只用浏览器 `fetch` ＋宿主提供的 React（`require("react")`）。**不需要装本仓库以外的任何插件，也不依赖本机那些守卫/记忆插件**；本地模型与云模型同用。
+- **依赖边界（发布时说明清楚）**：本插件只读写**自己目录内**的文件（`data\settings.json`、`data\backups\`、`data\journal.jsonl`、`data\presets.json`、`data\boot.log`）。设置页里的「速度体检」「说明书」是**只读**面板：会读 profile 的 `cordis.patch.yml` 与工作区规则文件的**存在性与行内容**来报路径，绝不写它们；跨插件（守卫、记忆按需注入、hindsight、weknora）本版**不读写、不联动**。设置页要重启 DSH 才装载（web 侧在启动时组包）。
 
 ---
 
@@ -64,7 +65,7 @@ node lib/selfcheck.mjs --deep   # 连 profile 的 local-plugins 一起扫路径�
 | 键 | 类型 | 默认 | 说明 |
 |---|---|---|---|
 | `chain.steps` | string | `"1,2,3,4,5,6"` | 启用哪几步。只跑取证段填 `"1,2"`；跳过复现填 `"1,2,4,5,6"` |
-| `chain.maxFindings` | number | `12` | 一次自检最多报几条，防刷屏（1–100） |
+| `chain.maxFindings` | number | `12` | 一次自检最多报几条，防刷屏（1–30；实测每条约 130 字，12 条≈780 token≈10 秒） |
 | `chain.stuckAfterFailures` | number | `2` | 同一假设连败几次触发停手（1–5） |
 | `selfcheck.pathDrift` | bool | `true` | 开关 C5 路径漂移扫描 |
 | `selfcheck.scanDirs` | string | `""` | 额外扫描目录，分号分隔；留空＝插件自身（`--deep`/`deep=true` 时加扫 local-plugins） |
@@ -78,6 +79,27 @@ node lib/selfcheck.mjs --deep   # 连 profile 的 local-plugins 一起扫路径�
 | `safety.allowMutate` | bool | **`false`** | 总开关。`false`＝自检只报问题＋给命令，绝不自动改文件 |
 
 改法：`dsh_xwide_thought_chain_config(set="chain.stuckAfterFailures", value="1")` —— 当场生效，并先写备份。
+
+### 4.1 · 界面里的调法（v0.1.9，设置中心 →「X-Wide 思考链」）
+
+**四个分类**（页面按类分块，每项写明它属于哪类、改了影响什么）：① 思考链本体 ② 开机自检·看守 ③ 注入与开销 ④ 写入与退回。
+
+**四组预设档位**——一次点一下，把上面四类一次配好（数值来自本机实测：decode 80.2 tok/s、冷 prefill 112.8 tok/s、前缀缓存命中约 90%、xhigh 8192 token ≈ 102 秒/轮）：
+
+| 档名 | 配了什么 | 什么时候用 |
+|---|---|---|
+| **本地模型·省上下文** | 注入段 420 字、回显 6 条、六步全开、记账本开 | 日常推荐 |
+| **快** | 注入段关（工具仍在）、只跑取证四步、回显 4 条、跳过陈旧日志检查 | 赶时间 |
+| **准** | 六步全开、回显 12 条、注入段 900 字、记账本开 | 动真实文件／改配置那一刀 |
+| **排障** | 连败 1 次就转 STUCK-5、回显 12 条、深扫路径漂移 | 突然卡在一个点 |
+
+再加 **「把这组当前值存成档位」**：自存档位写进 `data/presets.json`，可一键应用、可删；内置四组不可覆盖。每次应用档位＝先备份再批量写，`dsh_xwide_thought_chain_rollback(restore=true)` 照旧退回。
+
+**滑条**：六个数字项（回显条数 1–30、失败阈值 1–5、注入字数 100–1500、注入顺序 0–999、备份份数 1–50、陈旧日志 0–336 小时）拖滑块带实时数值与区间，**松手才写盘**（不是一路刷爆备份）。
+
+**两个只读面板**（都不写任何文件）：
+- **速度体检**——读 profile 里 `reasoningEffort` / `maxTokens` 的当前真值＋行号，算出本插件自己占多少秒，并写明「慢的大头是输出量×轮数」和「要动模型档位＝改启动关键文件，本插件不代改」。
+- **怎么运作 · 记忆在哪 · 怎么守住之前犯过的错**——列出本插件自己的值/备份/账本/档位/装载读数的真路径（逐个实测存在性），以及守错机制在哪：工作区 `错题本.md`（状态=硬线 的行每轮注入）、`沟通词典.md`、`卡点卡.md`、`规则书\卡点协议.md`；跨会话记忆用 `soul_recall(query=…)`／`cg(op="read", query=…)` 查。机制一句话：**你纠正我 → 当场往错题本/沟通词典各追加一行 → 第二次重犯就升成硬线**，所以同一个错只允许犯两次。这些文件本插件只报路径与用法，不读写。
 
 ## 5 · 退回机制（`dsh_xwide_thought_chain_rollback`）
 
@@ -146,4 +168,4 @@ DSH 作为 Electron 主进程启动时，如果 stdout/stderr 没被收进文件
 
 ---
 
-原创设计：XWIDE · MIT · v0.1.8
+原创设计：XWIDE · MIT · v0.1.9

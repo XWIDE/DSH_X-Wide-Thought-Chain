@@ -20,7 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const name = "dsh-xwide-thought-chain";
-export const version = "0.1.8";
+export const version = "0.1.9";
 export const inject = ["tools", "systemPrompt", "settings"];
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -35,21 +35,36 @@ function logBoot(msg) {
   try { fs.mkdirSync(DATA, { recursive: true }); fs.appendFileSync(BOOT_LOG, new Date().toISOString() + " | v" + version + " | " + msg + "\n", "utf8"); } catch { /* 日志坏了不连累功能 */ }
 }
 
-// ── 微调设置：每项都带说明，dsh_xwide_thought_chain_config(show=true) 原样打出来 ──────────────
+// ── 微调设置：每项带说明＋分类（group）＋滑条区间（min/max），界面按分类分块渲染 ──────────────
+export const SETTINGS_GROUPS = [
+  { id: "chain", zh: "① 思考链本体", desc: "六步链跑哪几步、每步报几条、几次失败算卡住" },
+  { id: "selfcheck", zh: "② 开机自检·看守", desc: "升级/改名/换机后的路径漂移与缺件检查" },
+  { id: "prompt", zh: "③ 注入与开销", desc: "每轮往 systemPrompt 注入多少字——本插件的开销都在这" },
+  { id: "disk", zh: "④ 写入与退回", desc: "记账本、备份份数、以及“只报不自动改”的总开关" },
+];
 export const SETTINGS_SCHEMA = [
-  { key: "chain.steps", type: "string", def: "1,2,3,4,5,6", desc: "六步链启用哪几步（逗号分隔）。例：只跑取证段填 \"1,2\"；跳过复现填 \"1,2,4,5,6\"。" },
-  { key: "chain.maxFindings", type: "number", def: 12, desc: "一次自检最多报几条发现，防止刷屏。1–100。" },
-  { key: "chain.stuckAfterFailures", type: "number", def: 2, desc: "同一假设连续失败几次就强制转 STUCK-5（停手、重列全景）。1–5。" },
-  { key: "selfcheck.pathDrift", type: "boolean", def: true, desc: "扫自身与 local-plugins 源码里的绝对路径字面量，逐个查存在性——安装目录改名后立刻报（本机曾因此静默失效一个月）。" },
-  { key: "selfcheck.scanDirs", type: "string", def: "", desc: "额外要扫的目录，分号分隔。留空＝插件自身 + profile 的 local-plugins。" },
-  { key: "selfcheck.inventoryFile", type: "string", def: "inventory.json", desc: "配方清单文件名（在插件 data\\ 下）。缺件检查按它逐条 existsSync。" },
-  { key: "selfcheck.staleLogHours", type: "number", def: 72, desc: "崩溃日志超过多少小时算陈旧（提示启动器没在用）。0＝不检查。" },
-  { key: "prompt.enabled", type: "boolean", def: true, desc: "是否向 systemPrompt 注入这条链的一句话提醒。关掉后只剩工具。" },
-  { key: "prompt.order", type: "number", def: 138, desc: "systemPrompt 段落顺序（越小越靠前）。" },
-  { key: "prompt.maxChars", type: "number", def: 700, desc: "注入文本最长字符数，省上下文用。" },
-  { key: "write.journal", type: "boolean", def: true, desc: "是否把每次改设置追加进 data\\journal.jsonl（退回机制的账本）。" },
-  { key: "write.maxBackups", type: "number", def: 10, desc: "settings.json 保留几份历史备份（data\\backups\\）。1–50。" },
-  { key: "safety.allowMutate", type: "boolean", def: false, desc: "总开关：false＝自检只报问题 + 给命令，绝不自动改任何东西；true＝允许插件自己写文件（仍先备份，且只写插件自己的 data\\）。" },
+  { key: "chain.steps", type: "string", group: "chain", def: "1,2,3,4,5,6", desc: "六步链启用哪几步（逗号分隔）。例：只跑取证段填 \"1,2\"；跳过复现填 \"1,2,4,5,6\"。" },
+  { key: "chain.maxFindings", type: "number", group: "chain", min: 1, max: 30, def: 12, desc: "一次自检最多报几条发现，防止刷屏。1–30。实测代价：每条约 130 字，12 条≈780 token≈10 秒（本机 decode 80.2 tok/s）；4 条≈4 秒。" },
+  { key: "chain.stuckAfterFailures", type: "number", group: "chain", min: 1, max: 5, def: 2, desc: "同一假设连续失败几次就强制转 STUCK-5（停手、重列全景）。1–5。" },
+  { key: "selfcheck.pathDrift", type: "boolean", group: "selfcheck", def: true, desc: "扫自身与 local-plugins 源码里的绝对路径字面量，逐个查存在性——安装目录改名后立刻报（本机曾因此静默失效一个月）。" },
+  { key: "selfcheck.scanDirs", type: "string", group: "selfcheck", def: "", desc: "额外要扫的目录，分号分隔。留空＝插件自身 + profile 的 local-plugins。" },
+  { key: "selfcheck.inventoryFile", type: "string", group: "selfcheck", def: "inventory.json", desc: "配方清单文件名（在插件 data\\ 下）。缺件检查按它逐条 existsSync。" },
+  { key: "selfcheck.staleLogHours", type: "number", group: "selfcheck", min: 0, max: 336, def: 72, desc: "崩溃日志超过多少小时算陈旧（提示启动器没在用）。0＝不检查。" },
+  { key: "prompt.enabled", type: "boolean", group: "prompt", def: true, desc: "是否向 systemPrompt 注入这条链的一句话提醒。关掉后只剩工具。" },
+  { key: "prompt.order", type: "number", group: "prompt", min: 0, max: 999, def: 138, desc: "systemPrompt 段落顺序（越小越靠前）。" },
+  { key: "prompt.maxChars", type: "number", group: "prompt", min: 100, max: 1500, def: 700, desc: "注入文本最长字符数（每轮一次）。实测：700→420 字每轮约省 1.7 秒等量 prefill（冷读 112.8 tok/s）；前缀缓存命中约 90%，所以「稳定」比「短」更省。" },
+  { key: "write.journal", type: "boolean", group: "disk", def: true, desc: "是否把每次改设置追加进 data\\journal.jsonl（退回机制的账本）。" },
+  { key: "write.maxBackups", type: "number", group: "disk", min: 1, max: 50, def: 10, desc: "settings.json 保留几份历史备份（data\\backups\\）。1–50。" },
+  { key: "safety.allowMutate", type: "boolean", group: "disk", def: false, desc: "总开关：false＝自检只报问题 + 给命令，绝不自动改任何东西；true＝允许插件自己写文件（仍先备份，且只写插件自己的 data\\）。" },
+];
+
+// ── 预设档位：一次点一下，把上面四类一次配好。数值来自本机实测（尺子台账：decode 80.2 tok/s、
+// 冷 prefill 112.8 tok/s、前缀缓存命中 ~90%、xhigh 8192 token ≈ 102 秒/轮）
+export const PRESETS = [
+  { name: "本地模型·省上下文", note: "日常推荐：注入段压到 420 字（越稳越小越省缓存），六步全开，回显 6 条，记账本开" , values: { "prompt.enabled": true, "prompt.maxChars": 420, "chain.steps": "1,2,3,4,5,6", "chain.maxFindings": 6, "chain.stuckAfterFailures": 2, "selfcheck.pathDrift": true, "selfcheck.staleLogHours": 72, "write.journal": true } },
+  { name: "快", note: "赶时间：注入段关掉（工具仍在），只跑取证四步，回显 4 条，跳过陈旧日志检查", values: { "prompt.enabled": false, "chain.steps": "1,2,4,5", "chain.maxFindings": 4, "chain.stuckAfterFailures": 2, "selfcheck.staleLogHours": 0, "write.journal": false } },
+  { name: "准", note: "动真实文件/改配置那一刀：六步全开，回显 12 条，注入段 900 字，记账本开", values: { "prompt.enabled": true, "prompt.maxChars": 900, "chain.steps": "1,2,3,4,5,6", "chain.maxFindings": 12, "chain.stuckAfterFailures": 2, "selfcheck.pathDrift": true, "write.journal": true } },
+  { name: "排障", note: "卡住时：连续失败 1 次就转 STUCK-5，回显 12 条，深扫路径漂移", values: { "prompt.enabled": true, "prompt.maxChars": 700, "chain.steps": "1,2,3,4,5,6", "chain.maxFindings": 12, "chain.stuckAfterFailures": 1, "selfcheck.pathDrift": true, "selfcheck.staleLogHours": 72 } },
 ];
 
 function loadSettings(config = {}) {
@@ -123,6 +138,116 @@ function setSetting(key, value, S) {
   for (const old of list.slice(0, Math.max(0, list.length - keep))) { try { fs.unlinkSync(path.join(BACKUPS, old)); } catch { } }
   if (S["write.journal"]) note("setting.set", { key, from: prev, to: v, backup: bak });
   return { ok: true, text: key + " : " + JSON.stringify(prev) + " → " + JSON.stringify(v) + "\n备份（退回用）：" + bak + "\n退回：dsh_xwide_thought_chain_rollback(restore=true)" };
+}
+
+// ── 预设档位：内置四组＋使用者自存组（data\\presets.json），一次点一下批量写（先备份再写，进账本）──
+const PRESETS_FILE = path.join(DATA, "presets.json");
+const readCustomPresets = () => { try { const j = JSON.parse(fs.readFileSync(PRESETS_FILE, "utf8")); return Array.isArray(j) ? j : []; } catch { return []; } };
+const writeCustomPresets = (list) => { fs.mkdirSync(DATA, { recursive: true }); fs.writeFileSync(PRESETS_FILE, JSON.stringify(list, null, 2), "utf8"); };
+
+function allPresets() {
+  const custom = readCustomPresets().map(p => ({ name: p.name, note: p.note || "使用者自存的档位", custom: true, values: p.values || {} }));
+  return PRESETS.map(p => ({ name: p.name, note: p.note, values: p.values })).concat(custom);
+}
+
+function applyPreset(presetName, config) {
+  const p = allPresets().find(x => x.name === presetName);
+  if (!p) return { ok: false, text: "没有这组档名：" + presetName + "\n现有：" + allPresets().map(x => x.name).join(" / ") };
+  const disk = (() => { try { return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")); } catch { return {}; } })();
+  const S = loadSettings(config);
+  fs.mkdirSync(BACKUPS, { recursive: true });
+  const bak = path.join(BACKUPS, "settings." + stamp() + ".json");
+  if (fs.existsSync(SETTINGS_FILE)) fs.copyFileSync(SETTINGS_FILE, bak); else fs.writeFileSync(bak, JSON.stringify(disk, null, 2), "utf8");
+  const changed = [];
+  for (const [k, v] of Object.entries(p.values || {})) {
+    const meta = SETTINGS_SCHEMA.find(m => m.key === k);
+    if (!meta) continue;
+    let val = v;
+    if (meta.type === "number") { val = Number(v); if (!Number.isFinite(val)) continue; }
+    if (meta.type === "boolean") val = v === true || v === "true" || v === 1;
+    if (disk[k] !== val) changed.push(meta.key + " : " + JSON.stringify(disk[k] !== undefined ? disk[k] : meta.def) + " → " + JSON.stringify(val));
+    disk[k] = val;
+  }
+  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(disk, null, 2), "utf8");
+  const keep = Math.max(1, Math.min(50, Number(S["write.maxBackups"]) || 10));
+  const list = fs.readdirSync(BACKUPS).filter(f => f.startsWith("settings.")).sort();
+  for (const old of list.slice(0, Math.max(0, list.length - keep))) { try { fs.unlinkSync(path.join(BACKUPS, old)); } catch { } }
+  if (S["write.journal"]) note("preset.apply", { name: p.name, changed: changed.length, backup: bak });
+  logBoot("route: 预设已应用「" + p.name + "」改 " + changed.length + " 项，备份 " + path.basename(bak));
+  return { ok: true, text: "已应用档位「" + p.name + "」：改了 " + changed.length + " 项\n" + (changed.join("\n") || "（当前值已与这组一致）") + "\n备份（退回用）：" + bak, cur: loadSettings(config) };
+}
+
+function savePreset(presetName, config) {
+  const nm = String(presetName || "").trim();
+  if (!nm) return { ok: false, text: "档名不能为空" };
+  if (PRESETS.some(p => p.name === nm)) return { ok: false, text: "「" + nm + "」是内置档位名，换一个（内置不可覆盖）" };
+  const S = loadSettings(config);
+  const values = {}; for (const m of SETTINGS_SCHEMA) values[m.key] = S[m.key];
+  const list = readCustomPresets().filter(p => p.name !== nm);
+  list.push({ name: nm, savedAt: new Date().toISOString(), values });
+  writeCustomPresets(list);
+  note("preset.save", { name: nm, keys: Object.keys(values).length });
+  logBoot("route: 自存档位已保存「" + nm + "」（" + Object.keys(values).length + " 项）");
+  return { ok: true, text: "已把当前这套存成档位「" + nm + "」（存 data\\presets.json，只写插件目录内）", presets: allPresets() };
+}
+
+function deletePreset(presetName) {
+  const list = readCustomPresets();
+  const next = list.filter(p => p.name !== presetName);
+  if (next.length === list.length) return { ok: false, text: "没有这组自存档位：" + presetName + "（内置四组不可删）" };
+  writeCustomPresets(next);
+  note("preset.delete", { name: presetName });
+  return { ok: true, text: "已删自存档位「" + presetName + "」", presets: allPresets() };
+}
+
+// 速度体检：只读盘上真值＋给命令，不写任何文件（safety.allowMutate 纪律不变）
+const PROFILE_PATCH = path.resolve(HERE, "..", "..", "cordis.patch.yml");
+function slowCheck(config) {
+  const S = loadSettings(config);
+  const lines = ["—— 速度体检（只读盘上真值，不改任何东西）——"];
+  const mc = Number(S["prompt.maxChars"]) || 0;
+  lines.push("本插件自己占的：注入段 " + (S["prompt.enabled"] ? "开，上限 " + mc + " 字/轮（≈ 最多 " + Math.ceil(mc / 2) + " token）" : "关（零开销，工具仍在）"));
+  lines.push("工具回显：每步上限 " + S["chain.maxFindings"] + " 条；账本：" + (S["write.journal"] ? "开" : "关") + "；备份保留 " + S["write.maxBackups"] + " 份");
+  if (!fs.existsSync(PROFILE_PATCH)) { lines.push("读不到 profile 的 cordis.patch.yml（路径：" + PROFILE_PATCH + "）——模型档位那部分测不到，直说。"); return { lines }; }
+  const raw = fs.readFileSync(PROFILE_PATCH, "utf8").split(/\r?\n/);
+  const hits = [];
+  raw.forEach((l, i) => { if (/reasoningEffort|maxTokens/.test(l)) hits.push("  第 " + (i + 1) + " 行：" + l.trim()); });
+  lines.push("profile 里的模型档位真值（慢的大头在这，不在本插件）：");
+  if (hits.length) for (const h of hits.slice(0, 12)) lines.push(h);
+  else lines.push("  （没匹配到 reasoningEffort / maxTokens 行）");
+  lines.push("本机实测代价（尺子台账 2026-11-08）：decode 80.2 tok/s、冷 prefill 112.8 tok/s、前缀缓存命中约 90%（命中省 96.2%）、引擎 total_slots:1 串行；xhigh 思考预算 8192 token ≈ 102 秒/轮。");
+  lines.push("能立刻减本插件开销的一条：注入段关掉（prompt.enabled=false）或压到 420 字（预设「本地模型·省上下文」）。");
+  lines.push("要动模型档位＝改 profile 的 cordis.patch.yml（启动关键文件，改错整个界面打不开）；生效范围＝新会话，旧会话是会话级覆盖。本插件不代改，只给读数与位置。");
+  return { lines };
+}
+
+// 怎么运作·记忆在哪·怎么守错：全用盘上真读数（逐个 existsSync），不写任何文件
+const DSH_HOME = path.resolve(HERE, "..", "..", "..");
+const WS_CANDIDATES = ["C:\\Users\\Administrator\\Documents\\deepseek-harness\\default-workspace"];
+function exists(p) { try { return fs.existsSync(p); } catch { return false; } }
+function countLines(p) { try { return fs.readFileSync(p, "utf8").trim().split(/\r?\n/).filter(Boolean).length; } catch { return 0; } }
+function about() {
+  const lines = ["—— 这套东西怎么运作（只读盘上真值）——"];
+  const baks = (() => { try { return fs.readdirSync(BACKUPS).filter(f => f.startsWith("settings.")).length; } catch { return 0; } })();
+  lines.push("【本插件的值在哪】全在插件目录内，卸载＝删目录 + 清 profile 两处登记：");
+  lines.push("  当前值：" + SETTINGS_FILE + (exists(SETTINGS_FILE) ? "" : "（还没写过，用的是内置默认）"));
+  lines.push("  历史备份：" + BACKUPS + "（现 " + baks + " 份）→ 退回：dsh_xwide_thought_chain_rollback(restore=true)");
+  lines.push("  改动账本：" + JOURNAL + "（现 " + countLines(JOURNAL) + " 条：谁在什么时候把哪项从什么改成什么）");
+  lines.push("  自存档位：" + PRESETS_FILE + (exists(PRESETS_FILE) ? "" : "（还没存过）") + "　装载读数：" + BOOT_LOG);
+  lines.push("【怎么守住之前犯过的错】不在本插件里，在这几处（逐个实测存在性）：");
+  const ws = WS_CANDIDATES.find(p => exists(p)) || WS_CANDIDATES[0];
+  for (const f of ["错题本.md", "沟通词典.md", "卡点卡.md", "规则书\\卡点协议.md", "AGENTS.md"]) {
+    lines.push("  " + (exists(path.join(ws, f)) ? "在  " : "读不到 ") + path.join(ws, f));
+  }
+  lines.push("  机制：你纠正我 → 当场往 错题本/沟通词典 各追加一行 → 第二次重犯就升成 AGENTS.md 硬线（那条每轮都注入）。所以同一个错只允许犯两次。");
+  lines.push("  记忆库（跨会话）：用工具查，不靠界面——soul_recall(query=…) 捞历史原文；cg(op=\"read\", query=…) 查结构化节点（约束/决策/产物）；DSH 侧另有 hindsight / 记忆按需注入 / weknora 三个独立插件（本插件不读写它们）。");
+  const memDirs = (() => { try { return fs.readdirSync(DSH_HOME).filter(n => /mem|aeis|lingshu|storages/i.test(n)).map(n => n + (exists(path.join(DSH_HOME, n)) ? "" : "?")); } catch { return []; } })();
+  lines.push("  " + DSH_HOME + " 下与记忆相关的目录：" + (memDirs.length ? memDirs.join(" / ") : "（没扫到）"));
+  lines.push("【效率的三个入口，按代价从大到小】");
+  lines.push("  1) 输出量 × 轮数——本机实测 decode 80.2 tok/s、xhigh 思考预算 8192 token ≈ 102 秒/轮。本插件能压的是「每步回显几条」：12 条≈780 token≈10 秒；4 条≈325 token≈4 秒。");
+  lines.push("  2) 每轮固定注入——注入段 700 字→420 字，每轮约省 1.7 秒等量 prefill（冷 prefill 112.8 tok/s，前缀缓存命中约 90%）。");
+  lines.push("  3) 模型档位与思考预算——在 profile 的 cordis.patch.yml（启动关键文件，本插件不代改；看行号用上面的「速度体检」）。");
+  return { lines };
 }
 
 function rollbackLast() {
@@ -250,7 +375,18 @@ export function apply(ctx, config = {}) {
                 const r = setSetting(String(body.key), body.value, S);
                 return reply({ ok: r.ok, text: r.text, cur: loadSettings(config) });
               }
-              return reply({ ok: true, version, items: SETTINGS_SCHEMA.map(m => ({ key: m.key, type: m.type, def: m.def, desc: m.desc })), cur: loadSettings(config) });
+              if (action === "apply-preset") return reply(applyPreset(String(body.name || ""), config));
+              if (action === "save-preset") return reply(savePreset(String(body.name || ""), config));
+              if (action === "delete-preset") return reply(deletePreset(String(body.name || "")));
+              if (action === "slowcheck") { const r = slowCheck(config); return reply({ ok: true, lines: r.lines, cur: loadSettings(config) }); }
+              if (action === "about") { const r = about(); return reply({ ok: true, lines: r.lines, cur: loadSettings(config) }); }
+              return reply({
+                ok: true, version,
+                groups: SETTINGS_GROUPS,
+                items: SETTINGS_SCHEMA.map(m => ({ key: m.key, type: m.type, group: m.group, min: m.min, max: m.max, def: m.def, desc: m.desc })),
+                presets: allPresets(),
+                cur: loadSettings(config),
+              });
             } catch (e) { logBoot("route: 异常 " + (e && e.message)); return reply({ ok: false, text: String((e && e.message) || e) }); }
           }
         });
