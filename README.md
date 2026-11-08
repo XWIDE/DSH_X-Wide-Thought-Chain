@@ -128,7 +128,8 @@ DSH 作为 Electron 主进程启动时，如果 stdout/stderr 没被收进文件
 - **零运行时依赖**：不需要任何其他插件、服务、Python、网络。
 - 自检 C5 只能发现**源码里写死的盘符路径**指向不存在的位置；它不能替你猜新路径该是什么（处方只给方向）。
 - C3 装载自检用桩 `ctx`（只实现 `tools.register` / `systemPrompt.section`），所以它证明"apply 不抛错、工具形状合法"，不证明宿主全部 API 行为。
-- 设置**两处都能改**：① DSH「设置」侧栏里的 **X-Wide 思考链** 面板（v0.1.5 起，13 项带说明与默认值）；② 工具 `dsh_xwide_thought_chain_config`（改前自动备份，可用 `dsh_xwide_thought_chain_rollback` 退回）。两处改的是同一份 `data/settings.json`。
+- 设置怎么改（v0.1.5 实测边界，说清楚）：① **工具 `dsh_xwide_thought_chain_config`**——当场生效、改前自动备份、可 `dsh_xwide_thought_chain_rollback` 退回；② profile 的 `cordis.patch.yml` 里本插件的 `config:` 段写同名项，重启生效。两处改的是同一份 `data/settings.json`。
+- **界面「设置」侧栏里目前没有本插件的条目**（v0.1.5 实测：注册 `settings.register` 只让命名空间能持久化，不产生侧栏条目）。要出那一行，需要插件带**客户端半部**并注册进官方 `settings.section` 槽——照 `dsh-ui-tools` 的形状做，排在 0.1.6。
 - Windows 为主开发/实测；macOS/Linux 未测。
 
 ## 10 · 版本策略

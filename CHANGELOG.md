@@ -4,6 +4,8 @@
 
 ## [0.1.5] - 2026-11-08
 
+**这条标题得纠正**：本条最初写的是「设置进界面」。重启后实测**没有生效**——侧栏没有出现本插件条目。真相是：`settings.register(ns, schema)` 只让命名空间**能持久化**，**不产生设置侧栏的条目**；侧栏那一行要由插件的**客户端半部**注册进官方 `settings.section` 槽（本机样本 `dsh-ui-tools`：README:38 说 register 只管持久化、README:649＋lib/client.js:4045 显示它是 client 端注册 `settings.section`（id `dsh-ui-tools`、order 100）自己画页面；反证＝只做了 host register 的 `dsh-thinking-levels` 也不在侧栏）。本插件是纯 host 插件，所以 v0.1.5 只做到持久化那一半。侧栏条目排在 **0.1.6**（需要加 client 入口）。
+
 **设置进界面**：v0.1.4 及之前，13 项微调只能靠工具 `dsh_xwide_thought_chain_config` 读写；现在 DSH「设置」侧栏多出一个 **X-Wide 思考链** 面板，13 项全带说明与默认值。
 
 - `inject` 加上 `"settings"`（`index.js:24`）；装载时注册命名空间 **`xwide-thought-chain`**（＝entry id），schema 由 `SETTINGS_SCHEMA` 现场生成，每项带 `title` / `type` / `default` / `description`，`base` 取当前生效值（`index.js:208-219`）。
