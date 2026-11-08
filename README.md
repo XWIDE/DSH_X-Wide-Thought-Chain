@@ -1,6 +1,6 @@
 ![X-WIDE · I BELIEVE](./assets/xwide.png)
 
-# DSH_X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.2
+# DSH_X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.3
 
 > 把一条排障/交付的**思考链**装进 DeepSeek Harness，外加一个**零依赖开机自检**：DSH 升级、安装目录改名、插件丢失时，不再靠人肉从头摸形状。
 
@@ -145,4 +145,4 @@ DSH 作为 Electron 主进程启动时，如果 stdout/stderr 没被收进文件
 
 ---
 
-原创设计：XWIDE · MIT · v0.1.2
+原创设计：XWIDE · MIT · v0.1.3

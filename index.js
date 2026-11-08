@@ -20,7 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const name = "dsh-xwide-thought-chain";
-export const version = "0.1.2";
+export const version = "0.1.3";
 export const inject = ["tools", "systemPrompt"];
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));

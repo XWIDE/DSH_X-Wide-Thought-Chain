@@ -2,6 +2,10 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.3] - 2026-11-08
+
+**打包隐私修复（npm 发布前 `pack --dry-run` 抓到）**：`files` 里的 `"data/"` 会把运行时隐私件打进公开包——实测清单含 `data/backups/` 里 11 份设置备份、`data/journal.jsonl`（改动账本，含本机路径）、`data/settings.json`。现改为只发 `data/inventory.example.json`；复跑预演＝24 文件 → 干净清单。版本号三处同步升到 0.1.3（自检 C1 项）。
+
 ## [0.1.2] - 2026-11-08
 
 ### Changed（破坏性：工具改名）
