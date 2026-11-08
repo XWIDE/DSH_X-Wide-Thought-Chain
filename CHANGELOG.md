@@ -2,6 +2,22 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.8] - 2026-11-08
+
+**根因修掉：客户端入口没声明依赖，宿主直接拒绝给 `ctx.slots`。** v0.1.7 的自报通道在你重启后立刻出读数（`data\boot.log` 第 21–22 行，真宿主 14:40）：
+
+```
+client: 心跳到达（客户端半部已装载）
+client: 注册报错自报 -> Error: cannot get property "slots" without inject
+    at new apply (dsh-app://app/plugins/??@deepseek-ai/dsh-client-ui-settings-subagent/client.js,…)
+```
+
+⇒ 客户端 bundle **确实装载了**（心跳到），死在**我自己写的 `exports.inject = []`**：cordis 只把声明过的服务给插件，没声明 `slots` 就不给，槽注册当场抛异常。
+
+**修法**：客户端入口改成 `exports.inject = ["slots", "locale"]`（样本 `dsh-ui-tools\lib\client.js:129` 声明的是 `["slots","modelDirectories","sessions","locale","workspaces"]`，本插件只用前两项里的两个，按需最小声明）。**这就是 v0.1.5/v0.1.6 两轮侧栏没条目的真因**——不是槽不存在、不是打包没带上、不是鉴权。
+
+顺带一条真机读数（写进文档免得以后再猜）：宿主半部在同一份日志里报 `host: 无 settings.register 服务，跳过命名空间注册` ⇒ 这台宿主上 `settings` 服务存在但**没有 `register` 方法**，v0.1.5 那次「注册命名空间」在真机上从未发生（所以 `settings.yaml` 至今不存在是必然，不是没人改过）。界面值一律走插件自己的 `data\settings.json`，不依赖它。
+
 ## [0.1.7] - 2026-11-08
 
 **加自带日志通道＋客户端自报：把「为什么侧栏没有」从猜变成读得到。** v0.1.6 在你机器上重启后侧栏仍无条目，而装载账（`/dsh-market/installed`）显示本插件与成功样本完全一致（`activation.state=live`、`bundle=true`、`hot=true`、`brokenPlugins` 空、`diagnostics.findings=[]`），web 侧却没有任何可读通道（`/plugins/<id>/client.js` 对成功样本也 404＝不是暴露面；`/api/*` 一律 401＝鉴权墙在路由前，401 证明不了什么）。本机插件 `console.log` 进不了 `harness.log`（实测 5 B 死通道），样本靠自己的 `ui-tools-host.log` 才看得见——这次补上同款：

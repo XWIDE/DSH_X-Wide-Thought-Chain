@@ -1,4 +1,4 @@
-# 装法 · DSH_X-Wide-Thought-Chain v0.1.7
+# 装法 · DSH_X-Wide-Thought-Chain v0.1.8
 
 > 本插件**不写、不改、也不读** profile 的 patch 配置；它只写自己目录下的 `data\`。
 > 装载那一行由你自己加——那个文件是 DSH 启动关键路径，改坏就起不来。
