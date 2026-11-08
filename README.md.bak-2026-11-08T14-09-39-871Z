@@ -1,0 +1,149 @@
+![X-WIDE · I BELIEVE](./assets/xwide.png)
+
+# DSH_X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.6
+
+> 把一条排障/交付的**思考链**装进 DeepSeek Harness，外加一个**零依赖开机自检**：DSH 升级、安装目录改名、插件丢失时，不再靠人肉从头摸形状。
+
+- 原创设计 & 维护：**XWIDE** — <https://github.com/XWIDE/DSH_X-Wide-Thought-Chain>
+- 许可：**MIT**（见 [LICENSE](./LICENSE)，含署名说明）· 变更历史见 [CHANGELOG.md](./CHANGELOG.md)
+- **运行时零依赖**：只用 node 内置模块，不依赖任何其他 DSH 插件；本地模型与云模型同用
+
+---
+
+## 1 · 为什么要有它（真实病例）
+
+本机 DSH 从 `DSH NEXT` 改名为 `DeepSeek Harness` 之后：
+
+- 十几个脚本里写死的旧安装路径全部**静默失效**——工具返回「(无输出)」，不报错、不留日志；
+- 判定器/交活闸丢了一批，**5 天没人察觉**；
+- 人格预设 id 改名导致 300+ 会话的人格指针**静默失效一个月**。
+
+这三类病的共同点：**漂移是静默的**。所以本插件做两件事：
+
+1. 把「怎么想」固化成六步链，逼着先量再改；
+2. 每次开机/升级后跑一遍自检，让漂移当场变红字。
+
+## 2 · 六步思考链（`dsh_xwide_thought_chain`）
+
+| 步 | 名称 | 要做的事 |
+|---|---|---|
+| ① | 冻结事实 | 两栏写清：已有读数（带来源）／还缺什么读数。**这步不许立假设** |
+| ② | 量真形状 | 探针打印真实结构（API 存在性 / 对象键 / 行数 / 字节数）。**猜出来的字段名不许进下一步** |
+| ③ | 最小复现 | 能稳定复现故障的最短命令 + 落盘读数。复现不了＝假设没成立 |
+| ④ | 单变量对照 | 一次只改一个变量，A/B 各跑一次，贴两次读数 |
+| ⑤ | 判定器 | 先写下能判红绿的脚本再动手。**判定器没说 OK 不许说「修好了」**；绿灯只证明管道通，不证明好用 |
+| ⑥ | 交活闸 | 四件套：改动:行号 ／ 备份路径 ／ 回滚命令 ／ 判定器原文 ＋ 一条否定证据 ＋ 一句「这次没验到什么」 |
+
+附带两条红线（写进输出里，不靠自觉）：**同一假设连败 N 次＝停手重列全景**（禁叠第 N+1 次）；**状态词只有你自己量过才许说**，量不到就直说「量不到」。
+
+## 3 · 开机自检（`dsh_xwide_thought_chain_selfcheck`）
+
+| 项 | 查什么 | 为什么要查 |
+|---|---|---|
+| C1 | 版本三处一致（`package.json` / `index.js` / `CHANGELOG.md`） | 发布纪律：改了代码忘了 bump 版本，现场就无法对账 |
+| C2 | 自家源码零绝对路径字面量 | 本包自己吃自己的药——写死安装目录就是上面那些病例的根 |
+| C3 | 装载自检：真 `import` 本包并对桩 `ctx` 跑一遍 `apply` | 语法过≠装载过；装载过≠跑得动 |
+| C4 | 配方清单缺件（按 `data/inventory.json` 逐条 `existsSync`） | 把"我依赖哪些插件"变成机器可查的表，丢了当场报 |
+| C5 | 安装路径漂移扫描（扫源码里的盘符字面量，逐个查存在性） | 改名/搬家后第一时间发现静默失效 |
+| C6 | 崩溃日志通道新鲜度 | 启动时 stdout/stderr 没被收走，插件就永远看不到崩溃行 |
+
+命令行也能跑（不装插件也能用）：
+
+```bash
+node lib/selfcheck.mjs          # 人读红绿表
+node lib/selfcheck.mjs --json   # 机器读
+node lib/selfcheck.mjs --deep   # 连 profile 的 local-plugins 一起扫路径漂移
+```
+
+输出末行是 `SELFCHECK = PASS n/n` 或 `SELFCHECK = NOT-PASS n/n`（退出码 0/1，可进 CI）。
+
+## 4 · 微调设置（`dsh_xwide_thought_chain_config`，每项带说明）
+
+调用 `dsh_xwide_thought_chain_config(show=true)` 会原样打印下表。存盘位置：插件目录 `data/settings.json`；profile 的 `config` 段可覆盖同名项（优先级：patch config > settings.json > 默认值）。
+
+| 键 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `chain.steps` | string | `"1,2,3,4,5,6"` | 启用哪几步。只跑取证段填 `"1,2"`；跳过复现填 `"1,2,4,5,6"` |
+| `chain.maxFindings` | number | `12` | 一次自检最多报几条，防刷屏（1–100） |
+| `chain.stuckAfterFailures` | number | `2` | 同一假设连败几次触发停手（1–5） |
+| `selfcheck.pathDrift` | bool | `true` | 开关 C5 路径漂移扫描 |
+| `selfcheck.scanDirs` | string | `""` | 额外扫描目录，分号分隔；留空＝插件自身（`--deep`/`deep=true` 时加扫 local-plugins） |
+| `selfcheck.inventoryFile` | string | `"inventory.json"` | 配方清单文件名（`data\` 下） |
+| `selfcheck.staleLogHours` | number | `72` | 崩溃日志超过多少小时算陈旧；`0`＝不查 |
+| `prompt.enabled` | bool | `true` | 是否向 systemPrompt 注入这条链的一句话提醒 |
+| `prompt.order` | number | `138` | 注入段顺序（越小越靠前） |
+| `prompt.maxChars` | number | `700` | 注入文本上限，省上下文 |
+| `write.journal` | bool | `true` | 改动是否记进 `data/journal.jsonl` 账本 |
+| `write.maxBackups` | number | `10` | 设置历史备份保留几份（1–50） |
+| `safety.allowMutate` | bool | **`false`** | 总开关。`false`＝自检只报问题＋给命令，绝不自动改文件 |
+
+改法：`dsh_xwide_thought_chain_config(set="chain.stuckAfterFailures", value="1")` —— 当场生效，并先写备份。
+
+## 5 · 退回机制（`dsh_xwide_thought_chain_rollback`）
+
+- 每次改设置前，先把当前 `settings.json` 复制到 `data/backups/settings.<时间戳>.json`；
+- 改动记进账本 `data/journal.jsonl`（`{ts, kind, key, from, to, backup}`）；
+- `dsh_xwide_thought_chain_rollback(restore=true)` → 退回上一份；退回前的状态**再存一份**（`settings.pre-rollback-*.json`），所以能来回退；
+- `dsh_xwide_thought_chain_rollback(list=true)` → 看账本，谁在什么时候把什么从什么改成什么。
+
+**写盘范围只有插件自己的 `data\` 目录。** profile 配置、宿主文件一律只读；自检发现问题只打印处方命令，默认一条都不执行。
+
+## 6 · 装它
+
+### 方式 A · 本地插件目录（推荐，零 npm）
+
+1. 把本目录放到 `<profile>/local-plugins/dsh-xwide-thought-chain/`
+2. 在 profile 的 patch 配置里加一行装载（完整步骤与注意项见 [install.md](./install.md)）：
+
+```yaml
+  - insert: './local-plugins/dsh-xwide-thought-chain/index.js'
+    id: xwide-thought-chain
+    type: module
+```
+
+3. **重启 DSH**（插件在启动时装载，改代码不重启不生效）。
+4. 验证：让助手跑 `dsh_xwide_thought_chain_selfcheck`，末行应出现 `SELFCHECK = PASS 6/6`。
+
+> 注意：patch 是启动关键文件。**先备份再改**，一次只加这一行；改完重启前跑一遍语法/装载校验。这行加坏了 DSH 起不来——本插件不碰它，也不该由插件碰。
+
+### 方式 B · npm 包名发布后安装
+
+```bash
+npm i dsh-xwide-thought-chain
+```
+
+（发布后生效；作用域包名同理，小写连字符。）
+
+## 7 · 卸载 / 回滚
+
+- 删掉 patch 里那一行（或用安装前的备份覆盖回去）→ 重启 → 插件消失；
+- 想连数据一起清：删插件目录里的 `data/`（设置、账本、备份都在里面，插件本体不含用户数据）。
+
+## 8 · 崩溃日志通道（C6 检查的东西）
+
+DSH 作为 Electron 主进程启动时，如果 stdout/stderr 没被收进文件，插件永远看不到 `failed to apply loader entry …` 这类崩溃行。做法：用一个把输出重定向到 `<用户目录>/logs/harness.log` 与 `harness.err.log` 的启动器启动 DSH，然后 `dsh_xwide_thought_chain_selfcheck` 会告诉你这通道是不是新鲜的。
+
+## 9 · 兼容与限制（说清楚，别让人踩坑）
+
+- **零运行时依赖**：不需要任何其他插件、服务、Python、网络。
+- 自检 C5 只能发现**源码里写死的盘符路径**指向不存在的位置；它不能替你猜新路径该是什么（处方只给方向）。
+- C3 装载自检用桩 `ctx`（只实现 `tools.register` / `systemPrompt.section`），所以它证明"apply 不抛错、工具形状合法"，不证明宿主全部 API 行为。
+- 设置怎么改（v0.1.5 实测边界，说清楚）：① **工具 `dsh_xwide_thought_chain_config`**——当场生效、改前自动备份、可 `dsh_xwide_thought_chain_rollback` 退回；② profile 的 `cordis.patch.yml` 里本插件的 `config:` 段写同名项，重启生效。两处改的是同一份 `data/settings.json`。
+- **界面「设置」侧栏里目前没有本插件的条目**（v0.1.5 实测：注册 `settings.register` 只让命名空间能持久化，不产生侧栏条目）。要出那一行，需要插件带**客户端半部**并注册进官方 `settings.section` 槽——照 `dsh-ui-tools` 的形状做，排在 0.1.6。
+- Windows 为主开发/实测；macOS/Linux 未测。
+
+## 10 · 版本策略
+
+语义化版本：破坏性改动 → 主版本；新工具/新设置项 → 次版本；修 bug → 修订号。**三处版本号必须一致**（C1 会自动抓）。改动记进 [CHANGELOG.md](./CHANGELOG.md)。
+
+## 11 · 品牌标（三个文件，都是 XWIDE 原创）
+
+| 文件 | 是什么 | 用在哪 |
+|---|---|---|
+| `assets/xwide.png` | **X-WIDE「I BELIEVE」品牌主标**（蓝→品红渐变晶体 X + 字标，方图白底） | 本 README 顶部、GitHub 仓库首页 |
+| `assets/xwide-avatar.png` | **圆形头像标**（同款 X，圆底裁切） | GitHub/插件市场头像位、任何需要圆形的地方 |
+| `assets/logo.svg` | 链形小标（六节点 + 加宽箭头 + 版本戳） | 插件内嵌/图标位（矢量、体积小、带版本号） |
+
+---
+
+原创设计：XWIDE · MIT · v0.1.5

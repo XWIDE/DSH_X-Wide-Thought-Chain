@@ -1,6 +1,6 @@
 ![X-WIDE · I BELIEVE](./assets/xwide.png)
 
-# DSH_X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.5
+# DSH_X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.6
 
 > 把一条排障/交付的**思考链**装进 DeepSeek Harness，外加一个**零依赖开机自检**：DSH 升级、安装目录改名、插件丢失时，不再靠人肉从头摸形状。
 
@@ -128,8 +128,8 @@ DSH 作为 Electron 主进程启动时，如果 stdout/stderr 没被收进文件
 - **零运行时依赖**：不需要任何其他插件、服务、Python、网络。
 - 自检 C5 只能发现**源码里写死的盘符路径**指向不存在的位置；它不能替你猜新路径该是什么（处方只给方向）。
 - C3 装载自检用桩 `ctx`（只实现 `tools.register` / `systemPrompt.section`），所以它证明"apply 不抛错、工具形状合法"，不证明宿主全部 API 行为。
-- 设置怎么改（v0.1.5 实测边界，说清楚）：① **工具 `dsh_xwide_thought_chain_config`**——当场生效、改前自动备份、可 `dsh_xwide_thought_chain_rollback` 退回；② profile 的 `cordis.patch.yml` 里本插件的 `config:` 段写同名项，重启生效。两处改的是同一份 `data/settings.json`。
-- **界面「设置」侧栏里目前没有本插件的条目**（v0.1.5 实测：注册 `settings.register` 只让命名空间能持久化，不产生侧栏条目）。要出那一行，需要插件带**客户端半部**并注册进官方 `settings.section` 槽——照 `dsh-ui-tools` 的形状做，排在 0.1.6。
+- 设置怎么改（三处，改的是同一份 `data/settings.json`）：① DSH「设置」侧栏里的 **X-Wide 思考链**页（v0.1.6 起：13 项表单，值走 `POST /api/xwide/settings` 落盘并留备份）；② 工具 `dsh_xwide_thought_chain_config`（当场生效、自动备份、`..._rollback` 退回）；③ profile 的 `cordis.patch.yml` 里本插件的 `config:` 段写同名项，重启生效（优先级最高，会盖住前两者）。
+- 为什么 v0.1.5 那版没有界面条目（留档，别再踩）：host 侧 `settings.register` **只让命名空间能持久化**，侧栏条目必须由**客户端半部**注册进官方 `settings.section` 槽才出现——v0.1.6 补的就是这一半。客户端装载发生在启动时，所以**加了 client 入口后必须重启 DSH** 才看得到那一行。
 - Windows 为主开发/实测；macOS/Linux 未测。
 
 ## 10 · 版本策略
@@ -146,4 +146,4 @@ DSH 作为 Electron 主进程启动时，如果 stdout/stderr 没被收进文件
 
 ---
 
-原创设计：XWIDE · MIT · v0.1.5
+原创设计：XWIDE · MIT · v0.1.6

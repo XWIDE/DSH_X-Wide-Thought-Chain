@@ -1,0 +1,51 @@
+{
+  "name": "dsh-xwide-thought-chain",
+  "version": "0.1.5",
+  "description": "X-Wide 思考链 · DSH 通用自检插件：把「冻结事实 → 量真形状 → 最小复现 → 单变量对照 → 判定器 → 交活闸」六步固化成可调用的链，并带零依赖开机自检（路径漂移 / 缺件 / 版本一致 / 日志通道）、逐项说明的微调设置、以及每个动作都留备份的退回机制。零运行时依赖，本地模型与云模型同用。",
+  "license": "MIT",
+  "author": {
+    "name": "XWIDE",
+    "url": "https://github.com/XWIDE"
+  },
+  "homepage": "https://github.com/XWIDE/DSH_X-Wide-Thought-Chain",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/XWIDE/DSH_X-Wide-Thought-Chain.git"
+  },
+  "bugs": {
+    "url": "https://github.com/XWIDE/DSH_X-Wide-Thought-Chain/issues"
+  },
+  "type": "module",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "lib/",
+    "data/inventory.example.json",
+    "assets/",
+    "cordis.patch.yml",
+    "install.md",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh-plugin",
+    "thought-chain",
+    "selfcheck",
+    "drift-detection",
+    "rollback",
+    "xwide",
+    "local-llm"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "selfcheck": "node lib/selfcheck.mjs",
+    "check": "node --check index.js && node --check lib/selfcheck.mjs"
+  },
+  "dsh": {
+    "plugin": true,
+    "bundle": { "patch": "./cordis.patch.yml" }
+  }
+}

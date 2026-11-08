@@ -2,6 +2,17 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.6] - 2026-11-08
+
+**加客户端半部：设置侧栏那一行终于有了着落。** v0.1.5 只做到「命名空间能持久化」，这次补上真正产生条目的那一半：
+
+- `lib/client.js`（新）：注册进官方 **`settings.section`** 槽（root list 槽，id `xwide-thought-chain`、order 140），自己画 13 项表单——开关/数字/文本三种控件，每项带说明与默认值；文案走 `ctx.locale.register`（中英）。入口格式照本机样本 `dsh-ui-tools` 量出来的 `window.__ModuleLoader__.load({id,factory})` 写法，React 走 `require("react")`。
+- `index.js`：宿主半部注册读写通道 `POST /api/xwide/settings`（`connection.fetch.register`，鉴权全在内核，插件侧不加第二道）。界面改的值当场写进 `data\settings.json` 并留备份，工具与自检立刻读到。
+- `package.json`：加 `exports["./client"]` ＋ `dsh.client { inject: [], platform: "web" }`。
+- 界面按尺子/02 做：字号只用 15/14/13/12，次级说明 `.70` 白＝实测 9.4:1，输入框与开关 32px，无通配选择器、无 `!important` 刷色，颜色继承宿主（深浅两底都不写死）。
+
+**生效范围**：客户端半部要**重启 DSH** 才装载（web 侧装载发生在启动时）；装载后设置中心侧栏出现「X-Wide 思考链」。本次交付的判定器只覆盖到语法＋宿主半部装载＋样式判据，**界面真出现那一行由使用者重启后核对**。
+
 ## [0.1.5] - 2026-11-08
 
 **这条标题得纠正**：本条最初写的是「设置进界面」。重启后实测**没有生效**——侧栏没有出现本插件条目。真相是：`settings.register(ns, schema)` 只让命名空间**能持久化**，**不产生设置侧栏的条目**；侧栏那一行要由插件的**客户端半部**注册进官方 `settings.section` 槽（本机样本 `dsh-ui-tools`：README:38 说 register 只管持久化、README:649＋lib/client.js:4045 显示它是 client 端注册 `settings.section`（id `dsh-ui-tools`、order 100）自己画页面；反证＝只做了 host register 的 `dsh-thinking-levels` 也不在侧栏）。本插件是纯 host 插件，所以 v0.1.5 只做到持久化那一半。侧栏条目排在 **0.1.6**（需要加 client 入口）。

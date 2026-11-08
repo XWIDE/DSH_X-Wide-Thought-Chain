@@ -20,7 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const name = "dsh-xwide-thought-chain";
-export const version = "0.1.5";
+export const version = "0.1.6";
 export const inject = ["tools", "systemPrompt", "settings"];
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -217,6 +217,32 @@ export function apply(ctx, config = {}) {
         });
       }
     } catch (e) { console.log("[" + name + "] settings.register 失败（不影响启动）：" + (e && e.message)); }
+
+    // 界面表单的读写通道：POST /api/xwide/settings。鉴权全在内核（Host/Origin 栅栏＋cookie，
+    // 非 owner 直接 403），插件侧不加第二道——照样本实测结论：加了会因为拿不到 peer 参数把功能整个关死。
+    try {
+      ctx.inject(["connection"], (sctx) => {
+        const c = sctx && sctx.connection;
+        if (!c || !c.fetch || typeof c.fetch.register !== "function") { console.log("[" + name + "] 本机宿主无 connection.fetch.register，跳过界面读写通道"); return; }
+        const reply = (obj) => new Response(JSON.stringify(obj), { status: 200, headers: { "content-type": "application/json; charset=utf-8" } });
+        const dispose = c.fetch.register({
+          path: "/api/xwide/settings",
+          methods: ["POST"],
+          requestBody: "buffered",
+          async fetch(request) {
+            try {
+              const body = await request.json().catch(() => ({}));
+              if (body && body.action === "set") {
+                const r = setSetting(String(body.key), body.value, S);
+                return reply({ ok: r.ok, text: r.text, cur: loadSettings(config) });
+              }
+              return reply({ ok: true, version, items: SETTINGS_SCHEMA.map(m => ({ key: m.key, type: m.type, def: m.def, desc: m.desc })), cur: loadSettings(config) });
+            } catch (e) { return reply({ ok: false, text: String((e && e.message) || e) }); }
+          }
+        });
+        console.log("[" + name + "] 界面读写通道已注册 POST /api/xwide/settings（dispose=" + typeof dispose + "）");
+      });
+    } catch (e) { console.log("[" + name + "] 界面读写通道注册失败（不影响启动）：" + (e && e.message)); }
   } catch (e) {
     // 装载失败绝不阻塞启动
     console.log("[" + name + "] 装载失败（不影响 DSH 启动）：" + (e && e.message));
