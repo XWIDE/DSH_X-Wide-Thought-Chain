@@ -1,0 +1,210 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// DSH_X-Wide-Thought-Chain · dsh-xwide-thought-chain  v0.1.0
+//
+// 这是什么：把一条排障/交付的思考链固化成插件——
+//   ① 冻结事实（已读数 / 未读数两栏） ② 量真形状（探针，不许猜 API）
+//   ③ 最小复现 ④ 单变量对照 ⑤ 判定器 ⑥ 交活闸
+// 外加零依赖开机自检（安装路径漂移 / 缺件 / 版本一致 / 崩溃日志通道），
+// 逐项带说明的微调设置，以及「每个写动作先备份、可一键退回」的退回机制。
+//
+// 设计纪律（本包自己吃自己的药，自检 C2 会扫这些）：
+//   · 运行时**零依赖**：只用 node 内置模块，不依赖任何其他 DSH 插件
+//   · 源码里**零绝对路径字面量**：一律 import.meta.url / process.env 派生
+//   · 默认不写盘：safety.allowMutate=false 时所有修复只给命令，不执行
+//   · 写盘范围只有插件自己的 data\ 目录；profile 配置一律只读
+//   · 自检失败绝不抛错阻塞启动（apply 全程 try/catch）
+// ═══════════════════════════════════════════════════════════════════════════
+
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+export const name = "dsh-xwide-thought-chain";
+export const version = "0.1.2";
+export const inject = ["tools", "systemPrompt"];
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const DATA = path.join(HERE, "data");
+const BACKUPS = path.join(DATA, "backups");
+const SETTINGS_FILE = path.join(DATA, "settings.json");
+const JOURNAL = path.join(DATA, "journal.jsonl");
+
+// ── 微调设置：每项都带说明，dsh_xwide_thought_chain_config(show=true) 原样打出来 ──────────────
+export const SETTINGS_SCHEMA = [
+  { key: "chain.steps", type: "string", def: "1,2,3,4,5,6", desc: "六步链启用哪几步（逗号分隔）。例：只跑取证段填 \"1,2\"；跳过复现填 \"1,2,4,5,6\"。" },
+  { key: "chain.maxFindings", type: "number", def: 12, desc: "一次自检最多报几条发现，防止刷屏。1–100。" },
+  { key: "chain.stuckAfterFailures", type: "number", def: 2, desc: "同一假设连续失败几次就强制转 STUCK-5（停手、重列全景）。1–5。" },
+  { key: "selfcheck.pathDrift", type: "boolean", def: true, desc: "扫自身与 local-plugins 源码里的绝对路径字面量，逐个查存在性——安装目录改名后立刻报（本机曾因此静默失效一个月）。" },
+  { key: "selfcheck.scanDirs", type: "string", def: "", desc: "额外要扫的目录，分号分隔。留空＝插件自身 + profile 的 local-plugins。" },
+  { key: "selfcheck.inventoryFile", type: "string", def: "inventory.json", desc: "配方清单文件名（在插件 data\\ 下）。缺件检查按它逐条 existsSync。" },
+  { key: "selfcheck.staleLogHours", type: "number", def: 72, desc: "崩溃日志超过多少小时算陈旧（提示启动器没在用）。0＝不检查。" },
+  { key: "prompt.enabled", type: "boolean", def: true, desc: "是否向 systemPrompt 注入这条链的一句话提醒。关掉后只剩工具。" },
+  { key: "prompt.order", type: "number", def: 138, desc: "systemPrompt 段落顺序（越小越靠前）。" },
+  { key: "prompt.maxChars", type: "number", def: 700, desc: "注入文本最长字符数，省上下文用。" },
+  { key: "write.journal", type: "boolean", def: true, desc: "是否把每次改设置追加进 data\\journal.jsonl（退回机制的账本）。" },
+  { key: "write.maxBackups", type: "number", def: 10, desc: "settings.json 保留几份历史备份（data\\backups\\）。1–50。" },
+  { key: "safety.allowMutate", type: "boolean", def: false, desc: "总开关：false＝自检只报问题 + 给命令，绝不自动改任何东西；true＝允许插件自己写文件（仍先备份，且只写插件自己的 data\\）。" },
+];
+
+function loadSettings(config = {}) {
+  const disk = (() => { try { return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")); } catch { return {}; } })();
+  const s = {};
+  for (const m of SETTINGS_SCHEMA) {
+    const v = config[m.key] ?? disk[m.key];
+    s[m.key] = v === undefined || v === null ? m.def : v;
+  }
+  return s;
+}
+
+function stamp() { return new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14); }
+function note(kind, obj) {
+  try {
+    fs.mkdirSync(DATA, { recursive: true });
+    fs.appendFileSync(JOURNAL, JSON.stringify({ ts: new Date().toISOString(), plugin: name, version, kind, ...obj }) + "\n", "utf8");
+  } catch { /* 记账失败不影响功能 */ }
+}
+
+// ── 六步链：把「怎么想」变成可填的表，逼着先量再改 ─────────────────────────
+function chainRun(input, S) {
+  const want = String(S["chain.steps"]).split(",").map(x => x.trim()).filter(Boolean);
+  const steps = [
+    { n: 1, title: "冻结事实", prompt: "两栏写清：已有读数（带来源）／还缺什么读数。不许在这步立假设。" },
+    { n: 2, title: "量真形状", prompt: "探针打印真实结构（API 存在性 / 对象键 / 行数 / 文件大小）。猜出来的选择器、字段名一律不许进下一步。" },
+    { n: 3, title: "最小复现", prompt: "能稳定复现故障的最短命令 + 落盘读数。复现不了＝假设没成立。" },
+    { n: 4, title: "单变量对照", prompt: "一次只改一个变量，跑 A/B 两次，贴两次读数。多变量一起动＝结论作废。" },
+    { n: 5, title: "判定器", prompt: "写下能判红绿的脚本再动手；判定器没说 OK 不许说「修好了」。绿灯只证明管道通，不证明好用。" },
+    { n: 6, title: "交活闸", prompt: "四件套：改动:行号 ／ 备份路径 ／ 回滚命令 ／ 判定器原文 ＋ 一条否定证据 ＋ 一句「这次没验到什么」。" },
+  ];
+  const max = Math.max(1, Math.min(100, Number(S["chain.maxFindings"]) || 12));
+  const picked = steps.filter(s => want.includes(String(s.n))).slice(0, max);
+  const stuck = Number(S["chain.stuckAfterFailures"]) || 2;
+  const lines = ["X-WIDE THOUGHT-CHAIN v" + version + "（当前第 " + (input && input.step ? input.step : "?") + " 步）"];
+  if (input && input.problem) lines.push("问题：" + String(input.problem).slice(0, 300));
+  for (const s of picked) {
+    lines.push("\n[" + s.n + "] " + s.title);
+    lines.push("  要做：" + s.prompt);
+  }
+  lines.push("\n停手红线：同一假设连续失败 " + stuck + " 次＝停当前方向，重列全景（禁叠第 " + (stuck + 1) + " 次）。");
+  lines.push("出口纪律：状态词（已完成／生效了／下完了）只有你自己量过才许说；量不到就直说「量不到」。");
+  return { text: lines.join("\n"), steps: picked.map(s => s.n) };
+}
+
+// ── 零依赖自检：委托 lib/selfcheck.mjs（同一份代码也能命令行直跑）──────────
+async function runSelfcheck(S, args) {
+  const mod = path.join(HERE, "lib", "selfcheck.mjs");
+  if (!fs.existsSync(mod)) return { ok: false, text: "缺内核文件 lib\\selfcheck.mjs（安装不完整，退回＝重装本包）" };
+  const modUrl = "file:///" + mod.replace(/\\/g, "/");
+  const { selfcheck } = await import(modUrl);
+  return selfcheck({ settings: S, schema: SETTINGS_SCHEMA, version, args: args || {} });
+}
+
+function setSetting(key, value, S) {
+  const meta = SETTINGS_SCHEMA.find(m => m.key === key);
+  if (!meta) return { ok: false, text: "没有这个设置项：" + key + "\n可选项见 dsh_xwide_thought_chain_config(show=true)" };
+  let v = value;
+  if (meta.type === "number") { v = Number(value); if (!Number.isFinite(v)) return { ok: false, text: "要数字，收到：" + value }; }
+  if (meta.type === "boolean") v = value === true || value === "true" || value === 1;
+  const disk = (() => { try { return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")); } catch { return {}; } })();
+  const prev = disk[key] !== undefined ? disk[key] : meta.def;
+  fs.mkdirSync(BACKUPS, { recursive: true });
+  const bak = path.join(BACKUPS, "settings." + stamp() + ".json");
+  if (fs.existsSync(SETTINGS_FILE)) fs.copyFileSync(SETTINGS_FILE, bak);
+  else fs.writeFileSync(bak, JSON.stringify(disk, null, 2), "utf8");
+  disk[key] = v;
+  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(disk, null, 2), "utf8");
+  const keep = Math.max(1, Math.min(50, Number(S["write.maxBackups"]) || 10));
+  const list = fs.readdirSync(BACKUPS).filter(f => f.startsWith("settings.")).sort();
+  for (const old of list.slice(0, Math.max(0, list.length - keep))) { try { fs.unlinkSync(path.join(BACKUPS, old)); } catch { } }
+  if (S["write.journal"]) note("setting.set", { key, from: prev, to: v, backup: bak });
+  return { ok: true, text: key + " : " + JSON.stringify(prev) + " → " + JSON.stringify(v) + "\n备份（退回用）：" + bak + "\n退回：dsh_xwide_thought_chain_rollback(restore=true)" };
+}
+
+function rollbackLast() {
+  if (!fs.existsSync(BACKUPS)) return { ok: false, text: "没有历史备份可退（data\\backups\\ 还不存在）" };
+  const list = fs.readdirSync(BACKUPS).filter(f => f.startsWith("settings.")).sort();
+  if (!list.length) return { ok: false, text: "没有历史备份可退（data\\backups\\ 是空的）" };
+  const latest = path.join(BACKUPS, list[list.length - 1]);
+  if (fs.existsSync(SETTINGS_FILE)) fs.copyFileSync(SETTINGS_FILE, path.join(BACKUPS, "settings.pre-rollback-" + stamp() + ".json"));
+  fs.copyFileSync(latest, SETTINGS_FILE);
+  note("setting.rollback", { restoredFrom: latest });
+  return { ok: true, text: "已退回上一份设置\n来源备份 = " + latest + "\n退回前状态另存于 data\\backups\\settings.pre-rollback-*.json（还能再退回去）" };
+}
+
+export function apply(ctx, config = {}) {
+  try {
+    if (config.enabled === false) { console.log("[" + name + "] disabled by config"); return; }
+    const S = loadSettings(config);
+
+    if (S["prompt.enabled"]) {
+      const base = "X-Wide 思考链 v" + version + "：排障/交付按六步走 —— ①冻结事实（读数两栏）②量真形状（探针，禁猜 API）③最小复现 ④单变量对照（A/B 各一次）⑤判定器（没说 OK 不许说修好了）⑥交活闸（改动:行号／备份／回滚命令／判定器原文＋否定证据＋没验到的）。同一假设连败 " + S["chain.stuckAfterFailures"] + " 次＝停手重列全景。工具：dsh_xwide_thought_chain / dsh_xwide_thought_chain_selfcheck / dsh_xwide_thought_chain_config / dsh_xwide_thought_chain_rollback。";
+      ctx.systemPrompt.section({
+        name: "tool:xwide-thought-chain",
+        order: Number(S["prompt.order"]) || 138,
+        text: base.slice(0, Math.max(120, Number(S["prompt.maxChars"]) || 700)),
+      });
+    }
+
+    const render = (_a, v) => [{ type: "text", text: String((v && v.text) || "") }];
+    const out = { schema: { type: "object", additionalProperties: true }, render };
+
+    const defs = [
+      {
+        name: "dsh_xwide_thought_chain",
+        description: "取用 X-Wide 思考链的当前步骤清单（六步：冻结事实→量真形状→最小复现→单变量对照→判定器→交活闸）。传 problem=你正在查的问题，step=现在第几步。卡在某个点上、或者准备说「修好了」之前调用。",
+        parameters: { type: "object", additionalProperties: false, properties: { problem: { type: "string", description: "一句话问题描述" }, step: { type: "number", description: "现在走到第几步（1–6）" } }, required: [] },
+        output: out, timeoutMs: 20000, isConcurrencySafe: () => true,
+        async execute(args) { const r = chainRun(args || {}, S); return { ok: true, text: r.text, steps: r.steps }; },
+        presentCall: (a) => ({ card: "generic", title: "dsh_xwide_thought_chain", content: String((a && a.problem) || "取链") }),
+        presentResult: (_a, r) => ({ card: "generic", title: "dsh_xwide_thought_chain", content: String((r && r.text) || "").slice(0, 2000) }),
+      },
+      {
+        name: "dsh_xwide_thought_chain_selfcheck",
+        description: "零依赖开机自检：①安装路径漂移（源码里的绝对路径字面量逐个查存在性）②配方清单缺件 ③版本三处一致 ④崩溃日志通道新鲜度 ⑤自身设置可读。DSH 升级／改名／换机后跑一次。默认只报问题 + 给命令，不自动改（safety.allowMutate=false）。",
+        parameters: { type: "object", additionalProperties: false, properties: { json: { type: "boolean", description: "true=输出 JSON" }, deep: { type: "boolean", description: "true=顺带扫 profile 的 local-plugins（慢一点）" } }, required: [] },
+        output: out, timeoutMs: 180000, isConcurrencySafe: () => true,
+        async execute(args) { const a = args || {}; return await runSelfcheck(S, { json: !!a.json, deep: !!a.deep }); },
+        presentCall: () => ({ card: "generic", title: "dsh_xwide_thought_chain_selfcheck", content: "开机自检" }),
+        presentResult: (_a, r) => ({ card: "generic", title: "dsh_xwide_thought_chain_selfcheck", content: String((r && r.text) || "").slice(0, 3000) }),
+      },
+      {
+        name: "dsh_xwide_thought_chain_config",
+        description: "看/改本插件的微调设置（每项带说明）。show=true 列出全部项与当前值；set=某项名 + value=新值 当场生效并留备份（可用 dsh_xwide_thought_chain_rollback 退回）。",
+        parameters: { type: "object", additionalProperties: false, properties: { show: { type: "boolean", description: "true=列出全部设置项 + 说明" }, set: { type: "string", description: "要改的项，如 selfcheck.pathDrift" }, value: { type: "string", description: "新值（布尔填 true/false）" } }, required: [] },
+        output: out, timeoutMs: 20000, isConcurrencySafe: () => false,
+        async execute(args) {
+          const a = args || {};
+          if (a.set !== undefined) return setSetting(String(a.set), a.value, S);
+          const cur = loadSettings(config);
+          const lines = ["X-Wide 思考链 v" + version + " 设置（存 data\\settings.json，profile 的 config 段可覆盖同名项）"];
+          for (const m of SETTINGS_SCHEMA) lines.push("· " + m.key + " = " + JSON.stringify(cur[m.key]) + "（默认 " + JSON.stringify(m.def) + "）\n    " + m.desc);
+          return { ok: true, text: lines.join("\n") };
+        },
+        presentCall: (a) => ({ card: "generic", title: "dsh_xwide_thought_chain_config", content: (a && a.set) ? String(a.set) : "列出设置" }),
+        presentResult: (_a, r) => ({ card: "generic", title: "dsh_xwide_thought_chain_config", content: String((r && r.text) || "").slice(0, 3000) }),
+      },
+      {
+        name: "dsh_xwide_thought_chain_rollback",
+        description: "退回机制：restore=true 把设置退到上一份备份；list=true 看账本（每次改动的 from/to 与备份路径）。本插件只写自己的 data\\ 目录，profile 配置一律只读。",
+        parameters: { type: "object", additionalProperties: false, properties: { restore: { type: "boolean", description: "true=退回上一份设置备份" }, list: { type: "boolean", description: "true=打印改动账本" } }, required: [] },
+        output: out, timeoutMs: 30000, isConcurrencySafe: () => false,
+        async execute(args) {
+          const a = args || {};
+          if (a.restore) return rollbackLast();
+          try {
+            const raw = fs.readFileSync(JOURNAL, "utf8").trim().split(/\r?\n/).filter(Boolean);
+            const tail = raw.slice(-Math.max(1, Number(S["chain.maxFindings"]) || 12));
+            return { ok: true, text: "账本 " + raw.length + " 条，最近 " + tail.length + " 条：\n" + tail.map(l => l.slice(0, 240)).join("\n") };
+          } catch { return { ok: true, text: "账本是空的（还没改过任何设置）" }; }
+        },
+        presentCall: (a) => ({ card: "generic", title: "dsh_xwide_thought_chain_rollback", content: (a && a.restore) ? "退回上一份" : "看账本" }),
+        presentResult: (_a, r) => ({ card: "generic", title: "dsh_xwide_thought_chain_rollback", content: String((r && r.text) || "").slice(0, 3000) }),
+      },
+    ];
+
+    for (const d of defs) ctx.tools.register(d);
+    console.log("[" + name + "] v" + version + " 已注册 " + defs.length + " 个工具（零依赖内核 lib\\selfcheck.mjs）");
+  } catch (e) {
+    // 装载失败绝不阻塞启动
+    console.log("[" + name + "] 装载失败（不影响 DSH 启动）：" + (e && e.message));
+  }
+}

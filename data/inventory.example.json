@@ -1,0 +1,19 @@
+{
+  "version": "0.1.0",
+  "_说明": "配方清单模板。复制成 inventory.json，把你机器上真实要用的插件/脚本登记进来；selfcheck 的 C4 会逐条查存在性，缺了当场报。路径支持三种占位写法：%USERPROFILE%、~ 开头、$env:VARNAME\\ —— 都会展开成运行期真实路径（这样清单本身不含写死的盘符，换机器不坏）。标 \"optional\": true 的条目缺了只提示不判红。",
+  "items": [
+    { "name": "本插件自检内核", "group": "self", "kind": "file", "path": "%USERPROFILE%\\.dsh\\profiles\\desktop\\local-plugins\\dsh-xwide-thought-chain\\lib\\selfcheck.mjs", "note": "缺了＝安装不完整" },
+    { "name": "思考链入口", "group": "self", "kind": "file", "path": "%USERPROFILE%\\.dsh\\profiles\\desktop\\local-plugins\\dsh-xwide-thought-chain\\index.js", "note": "缺了＝装载必失败" },
+
+    { "name": "会话体检引擎 check_session.cjs", "group": "doctor", "kind": "file", "optional": true, "path": "%USERPROFILE%\\Documents\\deepseek-harness\\default-workspace\\_session_fix\\check_session.cjs", "note": "dsh-session-doctor 的引擎；没有就把这条标 optional" },
+    { "name": "安全写引擎 safe_write.cjs", "group": "doctor", "kind": "file", "optional": true, "path": "%USERPROFILE%\\Documents\\deepseek-harness\\default-workspace\\_session_fix\\safe_write.cjs", "note": "同上" },
+    { "name": "会话修复引擎 repair_session.cjs", "group": "doctor", "kind": "file", "optional": true, "path": "%USERPROFILE%\\Documents\\deepseek-harness\\default-workspace\\_session_fix\\repair_session.cjs", "note": "同上" },
+
+    { "name": "写保护守卫 dsh-tool-guard", "group": "guard", "kind": "dir", "optional": true, "path": "%USERPROFILE%\\.dsh\\profiles\\desktop\\local-plugins\\dsh-tool-guard", "note": "推荐装：插件/脚本手抖时的护栏" },
+    { "name": "插件守护 dsh-plugin-guard", "group": "guard", "kind": "dir", "optional": true, "path": "%USERPROFILE%\\.dsh\\profiles\\desktop\\node_modules\\dsh-plugin-guard", "note": "装载自检与崩溃记录；它的 patch 项对 !js 自定义标签会假失败，别当结论用" },
+
+    { "name": "记忆图 dsh-memory（第三方/已发布）", "group": "memory", "kind": "dir", "optional": true, "path": "%USERPROFILE%\\.dsh\\profiles\\desktop\\node_modules\\@furongjun1999\\dsh-memory", "note": "跨会话记忆；需自带 Python 运行环境" },
+    { "name": "强制压缩 force-compact（第三方）", "group": "context", "kind": "dir", "optional": true, "path": "%USERPROFILE%\\.dsh\\profiles\\desktop\\node_modules\\@falling-ts\\dsh-force-compact", "note": "非 XWIDE 原创，属第三方依赖" },
+    { "name": "自动模式 auto-mode（第三方 NanmiCoder）", "group": "efficiency", "kind": "dir", "optional": true, "path": "%USERPROFILE%\\.dsh\\profiles\\desktop\\local-plugins\\dsh-auto-mode", "note": "非 XWIDE 原创，属第三方依赖" }
+  ]
+}

@@ -1,0 +1,6 @@
+﻿data/settings.json
+data/settings.json.bak*
+data/backups/
+data/journal.jsonl
+node_modules/
+
