@@ -1,0 +1,32 @@
+# 装载行（bundle patch，随包发布）。装好本包后由 profile 的 dsh.profile.bundles 自动应用。
+#
+# ⚠️ entry id 就是设置页的表单命名空间（harness 0.1.7 由 entry id 推导命名空间），
+#    改这个 id = 同时改掉设置页与已写进 settings.yaml 的覆盖项，请勿随意改名。
+#    本包 id 固定为 `xwide-thought-chain`（与 profile 用户层同 id，设置页命名空间一致）。
+#
+# 微调参数不在这里改：装好后用工具 dsh_xwide_thought_chain_config 逐项改（每项带说明），
+# 或设置页里改（写进 settings.yaml 覆盖本文件基线，清空即回落）。退回：dsh_xwide_thought_chain_rollback。
+# 开机自检：dsh_xwide_thought_chain_selfcheck（升级 / 改名 / 换机后跑一次）。
+- insert:
+    - id: xwide-thought-chain
+      name: dsh-xwide-thought-chain
+      config:
+        enabled: true
+        chain:
+          steps: "1,2,3,4,5,6"   # 六步链启用哪几步（冻结事实/量真形状/最小复现/单变量对照/判定器/交活闸）
+          maxFindings: 7         # 每步最多回显几条发现
+          stuckAfterFailures: 2  # 同一假设连续失败几次即判「卡住」，停手重列全景
+        selfcheck:
+          pathDrift: true        # 扫源码里的绝对路径字面量并查存活（升级/搬家后最重要）
+          scanDirs: ""           # 额外扫描目录，空=只扫自家源码；填分号分隔的绝对路径
+          inventoryFile: "inventory.json"
+          staleLogHours: 72      # 崩溃日志通道超过这么多小时没写就报警
+        prompt:
+          enabled: true          # 是否每轮注入思考链提醒行
+          order: 138             # 注入顺序
+          maxChars: 700          # 注入文本上限（越大越占上下文，影响前缀缓存）
+        write:
+          journal: true          # 写文件动作记改动账本
+          maxBackups: 10         # 设置项备份保留份数
+        safety:
+          allowMutate: false     # 自检默认只报问题+给命令，不自动改任何东西
