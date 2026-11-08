@@ -1,6 +1,6 @@
 ![X-WIDE · I BELIEVE](./assets/xwide.png)
 
-# DSH_X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.9
+# DSH_X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.10
 
 > 把一条排障/交付的**思考链**装进 DeepSeek Harness，外加一个**零依赖开机自检**：DSH 升级、安装目录改名、插件丢失时，不再靠人肉从头摸形状。
 
@@ -97,6 +97,8 @@ node lib/selfcheck.mjs --deep   # 连 profile 的 local-plugins 一起扫路径�
 
 **滑条**：六个数字项（回显条数 1–30、失败阈值 1–5、注入字数 100–1500、注入顺序 0–999、备份份数 1–50、陈旧日志 0–336 小时）拖滑块带实时数值与区间，**松手才写盘**（不是一路刷爆备份）。
 
+**排版与配色（v0.1.10）**：整页间距 34px、分类之间 22px＋分隔线、每项上下 10px、说明行距 1.7——不挤。四组档位用颜色一眼分开：**省＝绿**（`--dsw-alias-state-success-primary`）、**快＝蓝**（`--dsw-alias-brand-primary`）、**准＝琥珀**（`--dsw-alias-state-warn-primary`）、**排障＝红**（`--dsw-alias-state-error-primary`），自存档位随正文色；全部走宿主主题变量，深浅主题都由宿主给对比度。兜底色实测对深色底 5.45–5.98:1（WCAG 门槛 4.5）。
+
 **两个只读面板**（都不写任何文件）：
 - **速度体检**——读 profile 里 `reasoningEffort` / `maxTokens` 的当前真值＋行号，算出本插件自己占多少秒，并写明「慢的大头是输出量×轮数」和「要动模型档位＝改启动关键文件，本插件不代改」。
 - **怎么运作 · 记忆在哪 · 怎么守住之前犯过的错**——列出本插件自己的值/备份/账本/档位/装载读数的真路径（逐个实测存在性），以及守错机制在哪：工作区 `错题本.md`（状态=硬线 的行每轮注入）、`沟通词典.md`、`卡点卡.md`、`规则书\卡点协议.md`；跨会话记忆用 `soul_recall(query=…)`／`cg(op="read", query=…)` 查。机制一句话：**你纠正我 → 当场往错题本/沟通词典各追加一行 → 第二次重犯就升成硬线**，所以同一个错只允许犯两次。这些文件本插件只报路径与用法，不读写。
@@ -168,4 +170,4 @@ DSH 作为 Electron 主进程启动时，如果 stdout/stderr 没被收进文件
 
 ---
 
-原创设计：XWIDE · MIT · v0.1.9
+原创设计：XWIDE · MIT · v0.1.10
