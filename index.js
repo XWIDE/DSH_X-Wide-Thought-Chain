@@ -20,7 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const name = "dsh-xwide-thought-chain";
-export const version = "0.1.6";
+export const version = "0.1.7";
 export const inject = ["tools", "systemPrompt", "settings"];
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -28,6 +28,12 @@ const DATA = path.join(HERE, "data");
 const BACKUPS = path.join(DATA, "backups");
 const SETTINGS_FILE = path.join(DATA, "settings.json");
 const JOURNAL = path.join(DATA, "journal.jsonl");
+const BOOT_LOG = path.join(DATA, "boot.log");
+
+// 自带日志通道（本机插件 console.log 进不了 harness.log，实测 5 B 死通道；照样本 dsh-ui-tools 的 ui-tools-host.log 做法）
+function logBoot(msg) {
+  try { fs.mkdirSync(DATA, { recursive: true }); fs.appendFileSync(BOOT_LOG, new Date().toISOString() + " | v" + version + " | " + msg + "\n", "utf8"); } catch { /* 日志坏了不连累功能 */ }
+}
 
 // ── 微调设置：每项都带说明，dsh_xwide_thought_chain_config(show=true) 原样打出来 ──────────────
 export const SETTINGS_SCHEMA = [
@@ -202,6 +208,7 @@ export function apply(ctx, config = {}) {
     ];
 
     for (const d of defs) ctx.tools.register(d);
+    logBoot("host: apply 开跑，注册 " + defs.length + " 个工具");
     console.log("[" + name + "] v" + version + " 已注册 " + defs.length + " 个工具（零依赖内核 lib\\selfcheck.mjs）");
 
     // 界面设置面板：命名空间＝entry id（xwide-thought-chain），schema 由 SETTINGS_SCHEMA 生成，每项带说明
@@ -209,21 +216,23 @@ export function apply(ctx, config = {}) {
       if (typeof ctx.inject === "function") {
         ctx.inject(["settings"], (sctx) => {
           const settings = sctx && sctx.settings;
-          if (typeof (settings && settings.register) !== "function") { console.log("[" + name + "] 本机宿主无 settings.register，跳过界面设置"); return; }
+          if (typeof (settings && settings.register) !== "function") { logBoot("host: 无 settings.register 服务，跳过命名空间注册"); console.log("[" + name + "] 本机宿主无 settings.register，跳过界面设置"); return; }
           const props = {}, base = {};
           for (const m of SETTINGS_SCHEMA) { props[m.key] = { type: m.type, default: m.def, title: m.key, description: m.desc }; base[m.key] = S[m.key]; }
-          settings.register("xwide-thought-chain", { type: "object", additionalProperties: false, title: "X-Wide 思考链 v" + version, properties: props }, { base });
-          console.log("[" + name + "] 界面设置已注册（命名空间 xwide-thought-chain，" + Object.keys(props).length + " 项）");
+          try {
+            settings.register("xwide-thought-chain", { type: "object", additionalProperties: false, title: "X-Wide 思考链 v" + version, properties: props }, { base });
+            logBoot("host: settings.register OK（命名空间 xwide-thought-chain，" + Object.keys(props).length + " 项）");
+          } catch (e2) { logBoot("host: settings.register 抛异常：" + (e2 && e2.message)); throw e2; }
         });
       }
-    } catch (e) { console.log("[" + name + "] settings.register 失败（不影响启动）：" + (e && e.message)); }
+    } catch (e) { logBoot("host: settings 分支失败：" + (e && e.message)); console.log("[" + name + "] settings.register 失败（不影响启动）：" + (e && e.message)); }
 
     // 界面表单的读写通道：POST /api/xwide/settings。鉴权全在内核（Host/Origin 栅栏＋cookie，
     // 非 owner 直接 403），插件侧不加第二道——照样本实测结论：加了会因为拿不到 peer 参数把功能整个关死。
     try {
       ctx.inject(["connection"], (sctx) => {
         const c = sctx && sctx.connection;
-        if (!c || !c.fetch || typeof c.fetch.register !== "function") { console.log("[" + name + "] 本机宿主无 connection.fetch.register，跳过界面读写通道"); return; }
+        if (!c || !c.fetch || typeof c.fetch.register !== "function") { logBoot("host: 无 connection.fetch.register 服务，跳过读写通道"); console.log("[" + name + "] 本机宿主无 connection.fetch.register，跳过界面读写通道"); return; }
         const reply = (obj) => new Response(JSON.stringify(obj), { status: 200, headers: { "content-type": "application/json; charset=utf-8" } });
         const dispose = c.fetch.register({
           path: "/api/xwide/settings",
@@ -232,19 +241,27 @@ export function apply(ctx, config = {}) {
           async fetch(request) {
             try {
               const body = await request.json().catch(() => ({}));
-              if (body && body.action === "set") {
+              const action = String((body && body.action) || "get");
+              // 客户端心跳与自报错误：证明 web 侧真装载了（以及槽注册时抛了什么）
+              if (action === "ping") { logBoot("client: 心跳到达（客户端半部已装载）"); return reply({ ok: true, version }); }
+              if (action === "client-error") { logBoot("client: 注册报错自报 -> " + String((body && body.msg) || "").slice(0, 400)); return reply({ ok: true }); }
+              logBoot("route: action=" + action + (body && body.key ? " key=" + body.key : ""));
+              if (action === "set") {
                 const r = setSetting(String(body.key), body.value, S);
                 return reply({ ok: r.ok, text: r.text, cur: loadSettings(config) });
               }
               return reply({ ok: true, version, items: SETTINGS_SCHEMA.map(m => ({ key: m.key, type: m.type, def: m.def, desc: m.desc })), cur: loadSettings(config) });
-            } catch (e) { return reply({ ok: false, text: String((e && e.message) || e) }); }
+            } catch (e) { logBoot("route: 异常 " + (e && e.message)); return reply({ ok: false, text: String((e && e.message) || e) }); }
           }
         });
+        logBoot("host: 读写通道已注册 POST /api/xwide/settings");
         console.log("[" + name + "] 界面读写通道已注册 POST /api/xwide/settings（dispose=" + typeof dispose + "）");
       });
-    } catch (e) { console.log("[" + name + "] 界面读写通道注册失败（不影响启动）：" + (e && e.message)); }
+    } catch (e) { logBoot("host: 读写通道注册失败：" + (e && e.message)); console.log("[" + name + "] 界面读写通道注册失败（不影响启动）：" + (e && e.message)); }
+    logBoot("host: apply 跑完");
   } catch (e) {
     // 装载失败绝不阻塞启动
+    logBoot("host: 装载失败：" + (e && e.message));
     console.log("[" + name + "] 装载失败（不影响 DSH 启动）：" + (e && e.message));
   }
 }

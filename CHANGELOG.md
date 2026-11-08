@@ -2,6 +2,16 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.7] - 2026-11-08
+
+**加自带日志通道＋客户端自报：把「为什么侧栏没有」从猜变成读得到。** v0.1.6 在你机器上重启后侧栏仍无条目，而装载账（`/dsh-market/installed`）显示本插件与成功样本完全一致（`activation.state=live`、`bundle=true`、`hot=true`、`brokenPlugins` 空、`diagnostics.findings=[]`），web 侧却没有任何可读通道（`/plugins/<id>/client.js` 对成功样本也 404＝不是暴露面；`/api/*` 一律 401＝鉴权墙在路由前，401 证明不了什么）。本机插件 `console.log` 进不了 `harness.log`（实测 5 B 死通道），样本靠自己的 `ui-tools-host.log` 才看得见——这次补上同款：
+
+- 宿主半部：`data\boot.log` 逐条记 `apply 开跑 / settings.register OK 或抛异常 / 读写通道已注册 / 装载失败`。
+- 客户端半部：装载即 POST 心跳（`action:"ping"`）→ 落一条 `client: 心跳到达`；注册过程抛异常则把**堆栈原文**POST 回来落 `client: 注册报错自报 -> …`；`ctx.slots.inject` 不存在时自报形状。
+- 从此「客户端到底装载没装载」「槽注册炸在哪一行」都有盘上读数，不再靠截图猜。
+
+**判据**：重启后看 `data\boot.log`。有 `host:` 行没 `client:` 行＝web 侧没装载（问题在打包/装载层）；两行都有且带 `注册报错自报`＝问题在槽注册，堆栈直接给答案。
+
 ## [0.1.6] - 2026-11-08
 
 **加客户端半部：设置侧栏那一行终于有了着落。** v0.1.5 只做到「命名空间能持久化」，这次补上真正产生条目的那一半：
