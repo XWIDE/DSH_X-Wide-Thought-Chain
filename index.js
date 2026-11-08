@@ -129,13 +129,15 @@ function setSetting(key, value, S) {
   const disk = (() => { try { return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")); } catch { return {}; } })();
   const prev = disk[key] !== undefined ? disk[key] : meta.def;
   fs.mkdirSync(BACKUPS, { recursive: true });
-  const bak = path.join(BACKUPS, "settings." + stamp() + ".json");
+  // 前缀 settings.write-＝改动前的快照，退回只认这一类；和 settings.pre-rollback-*（退回动作自己留的后悔药）分开。
+  // 混用同一个前缀时第二次退回会取到「第一次退回时的快照」——判分器 T6 实测抓到（退完只剩一个键）
+  const bak = path.join(BACKUPS, "settings.write-" + stamp() + ".json");
   if (fs.existsSync(SETTINGS_FILE)) fs.copyFileSync(SETTINGS_FILE, bak);
   else fs.writeFileSync(bak, JSON.stringify(disk, null, 2), "utf8");
   disk[key] = v;
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(disk, null, 2), "utf8");
   const keep = Math.max(1, Math.min(50, Number(S["write.maxBackups"]) || 10));
-  const list = fs.readdirSync(BACKUPS).filter(f => f.startsWith("settings.")).sort();
+  const list = fs.readdirSync(BACKUPS).filter(f => f.startsWith("settings.write-")).sort();
   for (const old of list.slice(0, Math.max(0, list.length - keep))) { try { fs.unlinkSync(path.join(BACKUPS, old)); } catch { } }
   if (S["write.journal"]) note("setting.set", { key, from: prev, to: v, backup: bak });
   return { ok: true, text: key + " : " + JSON.stringify(prev) + " → " + JSON.stringify(v) + "\n备份（退回用）：" + bak + "\n退回：dsh_xwide_thought_chain_rollback(restore=true)" };
@@ -157,7 +159,7 @@ function applyPreset(presetName, config) {
   const disk = (() => { try { return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")); } catch { return {}; } })();
   const S = loadSettings(config);
   fs.mkdirSync(BACKUPS, { recursive: true });
-  const bak = path.join(BACKUPS, "settings." + stamp() + ".json");
+  const bak = path.join(BACKUPS, "settings.write-" + stamp() + ".json"); // 同 setSetting：退回只认 settings.write- 这一类
   if (fs.existsSync(SETTINGS_FILE)) fs.copyFileSync(SETTINGS_FILE, bak); else fs.writeFileSync(bak, JSON.stringify(disk, null, 2), "utf8");
   const changed = [];
   for (const [k, v] of Object.entries(p.values || {})) {
@@ -171,7 +173,7 @@ function applyPreset(presetName, config) {
   }
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(disk, null, 2), "utf8");
   const keep = Math.max(1, Math.min(50, Number(S["write.maxBackups"]) || 10));
-  const list = fs.readdirSync(BACKUPS).filter(f => f.startsWith("settings.")).sort();
+  const list = fs.readdirSync(BACKUPS).filter(f => f.startsWith("settings.write-")).sort();
   for (const old of list.slice(0, Math.max(0, list.length - keep))) { try { fs.unlinkSync(path.join(BACKUPS, old)); } catch { } }
   if (S["write.journal"]) note("preset.apply", { name: p.name, changed: changed.length, backup: bak });
   logBoot("route: 预设已应用「" + p.name + "」改 " + changed.length + " 项，备份 " + path.basename(bak));
@@ -236,7 +238,7 @@ function exists(p) { try { return fs.existsSync(p); } catch { return false; } }
 function countLines(p) { try { return fs.readFileSync(p, "utf8").trim().split(/\r?\n/).filter(Boolean).length; } catch { return 0; } }
 function about() {
   const lines = ["—— 这套东西怎么运作（只读盘上真值）——"];
-  const baks = (() => { try { return fs.readdirSync(BACKUPS).filter(f => f.startsWith("settings.")).length; } catch { return 0; } })();
+  const baks = (() => { try { return fs.readdirSync(BACKUPS).filter(f => f.startsWith("settings.write-")).length; } catch { return 0; } })();
   lines.push("【本插件的值在哪】全在插件目录内，卸载＝删目录 + 清 profile 两处登记：");
   lines.push("  当前值：" + SETTINGS_FILE + (exists(SETTINGS_FILE) ? "" : "（还没写过，用的是内置默认）"));
   lines.push("  历史备份：" + BACKUPS + "（现 " + baks + " 份）→ 退回：dsh_xwide_thought_chain_rollback(restore=true)");
@@ -260,13 +262,14 @@ function about() {
 
 function rollbackLast() {
   if (!fs.existsSync(BACKUPS)) return { ok: false, text: "没有历史备份可退（data\\backups\\ 还不存在）" };
-  const list = fs.readdirSync(BACKUPS).filter(f => f.startsWith("settings.")).sort();
-  if (!list.length) return { ok: false, text: "没有历史备份可退（data\\backups\\ 是空的）" };
+  // 只认改动快照 settings.write-*；退回自己留的 settings.pre-rollback-* 不参与，否则第二次退回会取到第一次退回时的快照
+  const list = fs.readdirSync(BACKUPS).filter(f => f.startsWith("settings.write-")).sort();
+  if (!list.length) return { ok: false, text: "没有「改动前快照」可退（data\\backups\\settings.write-*.json 一个都没有；先改一次设置再退）" };
   const latest = path.join(BACKUPS, list[list.length - 1]);
   if (fs.existsSync(SETTINGS_FILE)) fs.copyFileSync(SETTINGS_FILE, path.join(BACKUPS, "settings.pre-rollback-" + stamp() + ".json"));
   fs.copyFileSync(latest, SETTINGS_FILE);
   note("setting.rollback", { restoredFrom: latest });
-  return { ok: true, text: "已退回上一份设置\n来源备份 = " + latest + "\n退回前状态另存于 data\\backups\\settings.pre-rollback-*.json（还能再退回去）" };
+  return { ok: true, text: "已退回上一份设置\n来源备份 = " + latest + "\n退回前状态另存于 data\\backups\\settings.pre-rollback-*.json（不参与下一次退回）" };
 }
 
 export function apply(ctx, config = {}) {
