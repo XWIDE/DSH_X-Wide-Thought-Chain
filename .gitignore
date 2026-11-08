@@ -4,3 +4,5 @@ data/backups/
 data/journal.jsonl
 node_modules/
 
+
+*.bak-*
