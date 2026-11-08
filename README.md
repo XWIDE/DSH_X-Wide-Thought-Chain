@@ -1,6 +1,6 @@
 ![X-WIDE · I BELIEVE](./assets/xwide.png)
 
-# DSH_X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.4
+# DSH_X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.5
 
 > 把一条排障/交付的**思考链**装进 DeepSeek Harness，外加一个**零依赖开机自检**：DSH 升级、安装目录改名、插件丢失时，不再靠人肉从头摸形状。
 
@@ -128,7 +128,7 @@ DSH 作为 Electron 主进程启动时，如果 stdout/stderr 没被收进文件
 - **零运行时依赖**：不需要任何其他插件、服务、Python、网络。
 - 自检 C5 只能发现**源码里写死的盘符路径**指向不存在的位置；它不能替你猜新路径该是什么（处方只给方向）。
 - C3 装载自检用桩 `ctx`（只实现 `tools.register` / `systemPrompt.section`），所以它证明"apply 不抛错、工具形状合法"，不证明宿主全部 API 行为。
-- 界面没有独立设置面板：**设置通过工具 `dsh_xwide_thought_chain_config` 读写**（宿主未向第三方插件开放 settings UI API）。
+- 设置**两处都能改**：① DSH「设置」侧栏里的 **X-Wide 思考链** 面板（v0.1.5 起，13 项带说明与默认值）；② 工具 `dsh_xwide_thought_chain_config`（改前自动备份，可用 `dsh_xwide_thought_chain_rollback` 退回）。两处改的是同一份 `data/settings.json`。
 - Windows 为主开发/实测；macOS/Linux 未测。
 
 ## 10 · 版本策略
@@ -145,4 +145,4 @@ DSH 作为 Electron 主进程启动时，如果 stdout/stderr 没被收进文件
 
 ---
 
-原创设计：XWIDE · MIT · v0.1.4
+原创设计：XWIDE · MIT · v0.1.5

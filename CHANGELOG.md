@@ -2,6 +2,17 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.5] - 2026-11-08
+
+**设置进界面**：v0.1.4 及之前，13 项微调只能靠工具 `dsh_xwide_thought_chain_config` 读写；现在 DSH「设置」侧栏多出一个 **X-Wide 思考链** 面板，13 项全带说明与默认值。
+
+- `inject` 加上 `"settings"`（`index.js:24`）；装载时注册命名空间 **`xwide-thought-chain`**（＝entry id），schema 由 `SETTINGS_SCHEMA` 现场生成，每项带 `title` / `type` / `default` / `description`，`base` 取当前生效值（`index.js:208-219`）。
+- 调用形状照本机实测先例 `dsh-thinking-levels/lib/index.js:344`（`settings.register(ns, schema, { base })`），不猜 API。
+- 注册失败/宿主无此面 → 只打一行日志跳过，**不影响启动**（整段包在 try 里）。
+- 纠正 README 的旧判断：v0.1.4 写的「宿主未向第三方插件开放 settings UI API」**是错的**，已改。
+- 判据：真 import＋apply 探针 → `命名空间: xwide-thought-chain`、`表单项数: 13`、`判定: PASS`。
+- 生效范围：**重启后**（新进程装载时注册）；改动只在插件目录内，未碰 profile 配置。
+
 ## [0.1.4] - 2026-11-08
 
 **补上 bundle 装载行 `cordis.patch.yml`（插件市场静态校验要求）**：`package.json` 声明了 `dsh.bundle.patch: "./cordis.patch.yml"`，但 0.1.3 的仓库 tree 与 npm tarball 里**都没有这个文件**——市场的收录校验「检查 `dsh.bundle.patch` 字段 ＋ patch 文件在同一棵 tree 存在」必挂，而且市场安装器优先用 npm 包，装了会缺装载行。现补进包内并同步六处版本号（含 logo.svg 里的版本标）。entry id 固定 `xwide-thought-chain`，与设置页命名空间一致。

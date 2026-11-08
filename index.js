@@ -20,8 +20,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const name = "dsh-xwide-thought-chain";
-export const version = "0.1.4";
-export const inject = ["tools", "systemPrompt"];
+export const version = "0.1.5";
+export const inject = ["tools", "systemPrompt", "settings"];
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA = path.join(HERE, "data");
@@ -203,6 +203,20 @@ export function apply(ctx, config = {}) {
 
     for (const d of defs) ctx.tools.register(d);
     console.log("[" + name + "] v" + version + " 已注册 " + defs.length + " 个工具（零依赖内核 lib\\selfcheck.mjs）");
+
+    // 界面设置面板：命名空间＝entry id（xwide-thought-chain），schema 由 SETTINGS_SCHEMA 生成，每项带说明
+    try {
+      if (typeof ctx.inject === "function") {
+        ctx.inject(["settings"], (sctx) => {
+          const settings = sctx && sctx.settings;
+          if (typeof (settings && settings.register) !== "function") { console.log("[" + name + "] 本机宿主无 settings.register，跳过界面设置"); return; }
+          const props = {}, base = {};
+          for (const m of SETTINGS_SCHEMA) { props[m.key] = { type: m.type, default: m.def, title: m.key, description: m.desc }; base[m.key] = S[m.key]; }
+          settings.register("xwide-thought-chain", { type: "object", additionalProperties: false, title: "X-Wide 思考链 v" + version, properties: props }, { base });
+          console.log("[" + name + "] 界面设置已注册（命名空间 xwide-thought-chain，" + Object.keys(props).length + " 项）");
+        });
+      }
+    } catch (e) { console.log("[" + name + "] settings.register 失败（不影响启动）：" + (e && e.message)); }
   } catch (e) {
     // 装载失败绝不阻塞启动
     console.log("[" + name + "] 装载失败（不影响 DSH 启动）：" + (e && e.message));
