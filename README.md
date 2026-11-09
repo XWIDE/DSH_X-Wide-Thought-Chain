@@ -134,6 +134,8 @@ node lib/selfcheck.mjs --deep   # 连 profile 的 local-plugins 一起扫路径�
 
 判定器：`_rules_backup_harness.mjs`（本地假远程跑全回路：备份→tag 真上远程→漂移→恢复带 .bak→没勾拒发→含私货拒发且零上传→清干净才发→快照≠勾的那份拒发），实测 **19/19**。
 
+已知边角：GitHub `git init --bare/auto_init` 建出来的仓默认分支是 `main`，本工具推的是 `master`。私有仓用 API 把默认分支改成 `master` 即可；公开仓**首次发布后**也要改一次（否则别人打开看到的是 README）。
+
 ## 5 · 退回机制（`dsh_xwide_thought_chain_rollback`）
 
 - 每次改设置前，先把当前 `settings.json` 复制到 `data/backups/settings.<时间戳>.json`；
