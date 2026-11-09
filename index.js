@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 import { rulesStatus, rulesSnapshot, rulesMarkGood, rulesPublishPublic, rulesRestore, goodList, DEFAULT_FILES, DEFAULT_DIRS, DEFAULT_PUBLIC_FILES, DEFAULT_PUBLIC_DIRS } from "./lib/rules-git.mjs";
 
 export const name = "dsh-xwide-thought-chain";
-export const version = "0.1.13";
+export const version = "0.1.14";
 export const inject = ["tools", "systemPrompt", "settings"];
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -56,11 +56,11 @@ export const SETTINGS_GROUPS = [
   { id: "selfcheck", zh: "② 开机自检·看守", desc: "升级/改名/换机后的路径漂移与缺件检查" },
   { id: "prompt", zh: "③ 注入与开销", desc: "每轮往 systemPrompt 注入多少字——本插件的开销都在这" },
   { id: "disk", zh: "④ 写入与退回", desc: "记账本、备份份数、以及“只报不自动改”的总开关" },
-  { id: "rules", zh: "⑤ 规则库网上备份与发布", desc: "你的 AGENTS.md／词典／错题本／尺子／规则书 → 私有仓（你自己恢复用）；勾了「好状态」才允许把方法白名单发到公开库。只有你点按钮才跑 git，没有任何自动同步。" },
+  { id: "rules", zh: "⑤ 规则库网上备份与发布", desc: "工作区的规则文件（AGENTS.md、词典、笔记、方法目录）→ 私有仓备份，随时可取回；勾了「好状态」并通过脱敏扫描，才允许把方法白名单发到公开仓。只在点按钮时跑 git，零自动同步。" },
 ];
 export const SETTINGS_SCHEMA = [
   { key: "chain.steps", type: "string", group: "chain", def: "1,2,3,4,5,6", desc: "六步链启用哪几步（逗号分隔）。例：只跑取证段填 \"1,2\"；跳过复现填 \"1,2,4,5,6\"。" },
-  { key: "chain.maxFindings", type: "number", group: "chain", min: 1, max: 30, def: 12, desc: "一次自检最多报几条发现，防止刷屏。1–30。实测代价：每条约 130 字，12 条≈780 token≈10 秒（本机 decode 80.2 tok/s）；4 条≈4 秒。" },
+  { key: "chain.maxFindings", type: "number", group: "chain", min: 1, max: 30, def: 12, desc: "一次自检最多报几条发现，防止刷屏。1–30。代价按作者机器实测：每条约 130 字，12 条≈780 token≈10 秒（decode 80.2 tok/s）；4 条≈4 秒。你的机器速度不同，面板「速度体检」里可自量。" },
   { key: "chain.stuckAfterFailures", type: "number", group: "chain", min: 1, max: 5, def: 2, desc: "同一假设连续失败几次就强制转 STUCK-5（停手、重列全景）。1–5。" },
   { key: "selfcheck.pathDrift", type: "boolean", group: "selfcheck", def: true, desc: "扫自身与 local-plugins 源码里的绝对路径字面量，逐个查存在性——安装目录改名后立刻报（本机曾因此静默失效一个月）。" },
   { key: "selfcheck.scanDirs", type: "string", group: "selfcheck", def: "", desc: "额外要扫的目录，分号分隔。留空＝插件自身 + profile 的 local-plugins。" },
@@ -68,20 +68,20 @@ export const SETTINGS_SCHEMA = [
   { key: "selfcheck.staleLogHours", type: "number", group: "selfcheck", min: 0, max: 336, def: 72, desc: "崩溃日志超过多少小时算陈旧（提示启动器没在用）。0＝不检查。" },
   { key: "prompt.enabled", type: "boolean", group: "prompt", def: true, desc: "是否向 systemPrompt 注入这条链的一句话提醒。关掉后只剩工具。" },
   { key: "prompt.order", type: "number", group: "prompt", min: 0, max: 999, def: 138, desc: "systemPrompt 段落顺序（越小越靠前）。" },
-  { key: "prompt.maxChars", type: "number", group: "prompt", min: 100, max: 1500, def: 700, desc: "注入文本最长字符数（每轮一次）。实测：700→420 字每轮约省 1.7 秒等量 prefill（冷读 112.8 tok/s）；前缀缓存命中约 90%，所以「稳定」比「短」更省。" },
+  { key: "prompt.maxChars", type: "number", group: "prompt", min: 100, max: 1500, def: 700, desc: "注入文本最长字符数（每轮一次）。作者机器实测：700→420 字每轮约省 1.7 秒等量 prefill（冷读 112.8 tok/s）；前缀缓存命中约 90%，所以「稳定」比「短」更省。" },
   { key: "write.journal", type: "boolean", group: "disk", def: true, desc: "是否把每次改设置追加进 data\\journal.jsonl（退回机制的账本）。" },
   { key: "rules.privateRepo", type: "string", group: "rules", def: "", desc: "私有仓地址（GitHub 私有仓 https 或本地路径）。留空＝只在插件目录里 git 提交，零上传。" },
   { key: "rules.publicRepo", type: "string", group: "rules", def: "", desc: "公开仓地址（给插件使用者下的那份方法）。留空＝不发。发之前必须先勾「我认为这是好状态」＋脱敏扫描零命中。" },
-  { key: "rules.files", type: "string", group: "rules", def: DEFAULT_FILES, desc: "私有快照收哪些文件（逗号分隔，支持前缀*）。默认含错题本与词典——那是你的命根子，只进私有仓。" },
+  { key: "rules.files", type: "string", group: "rules", def: DEFAULT_FILES, desc: "私有快照收哪些文件（逗号分隔，支持前缀*）。默认值是示例（作者工作区的文件名），使用者按自己的规则文件增删；含个人病例与原话的文件建议只进私有仓。" },
   { key: "rules.dirs", type: "string", group: "rules", def: DEFAULT_DIRS, desc: "私有快照收哪些目录（尺子/规则书/契约卡）。" },
   { key: "rules.publicFiles", type: "string", group: "rules", def: DEFAULT_PUBLIC_FILES, desc: "公开库白名单：只放方法类文件。默认**不含**错题本、沟通词典、本机工具箱、数据源地图、台账、运作体系。" },
   { key: "rules.publicDirs", type: "string", group: "rules", def: DEFAULT_PUBLIC_DIRS, desc: "公开库目录白名单。" },
-  { key: "rules.scanExtra", type: "string", group: "rules", def: "ComfyUI-aki-v3,Strata-0.1.13,8080", desc: "脱敏扫描的附加词（逗号分隔，命中就拒绝发布）。内置还查：盘符路径、Administrator、npm_/ghp_ 令牌、密码字面、邮箱、手机号。" },
+  { key: "rules.scanExtra", type: "string", group: "rules", def: "", desc: "脱敏扫描的附加词（逗号分隔，命中就拒绝发布）。默认留空——这里该填你自己机器上的私货（项目名、安装目录名、端口号这类）。内置已查：盘符路径、Administrator、npm_/ghp_ 令牌、密码字面、邮箱、手机号。" },
   { key: "rules.publicVersion", type: "string", group: "rules", def: "", desc: "发公开库时打的版本号（如 v1.0 → tag rules-v1.0）。留空＝用时间戳。" },
   { key: "rules.gitExe", type: "string", group: "rules", def: "git", desc: "git 可执行文件（PATH 里有就填 git；否则填绝对路径）。" },
   { key: "rules.workspace", type: "string", group: "rules", def: "", desc: "规则文件所在的工作区目录。留空＝自动从 homedir／DSH_WORKSPACE 推导（本包纪律：源码零绝对路径字面量）。" },
   { key: "prompt.lessons", type: "boolean", group: "prompt", def: true, desc: "把「这一版学到的规则」（lib\\lessons.json，做错→做对蒸出来的一句条）单独注入 systemPrompt 一段，让下个会话开工就带着这些坑。关掉只剩六步。" },
-  { key: "prompt.lessonsCount", type: "number", group: "prompt", min: 0, max: 12, def: 6, desc: "注入前几条规则（0–12）。每条≈40 字（约 20 token）：6 条≈120 token；本机冷 prefill 112.8 tok/s ⇒ 一轮约多 1 秒，前缀缓存命中时几乎免费。全 12 条看得到面板里。" },
+  { key: "prompt.lessonsCount", type: "number", group: "prompt", min: 0, max: 12, def: 6, desc: "注入前几条规则（0–12）。每条≈40 字（约 20 token）：6 条≈120 token；作者机器冷 prefill 112.8 tok/s（你的机器请自量）⇒ 一轮约多 1 秒，前缀缓存命中时几乎免费。全 12 条看得到面板里。" },
   { key: "write.maxBackups", type: "number", group: "disk", min: 1, max: 50, def: 10, desc: "settings.json 保留几份历史备份（data\\backups\\）。1–50。" },
   { key: "safety.allowMutate", type: "boolean", group: "disk", def: false, desc: "总开关：false＝自检只报问题 + 给命令，绝不自动改任何东西；true＝允许插件自己写文件（仍先备份，且只写插件自己的 data\\）。" },
 ];
@@ -245,7 +245,7 @@ function slowCheck(config) {
   lines.push("profile 里的模型档位真值（慢的大头在这，不在本插件）：");
   if (hits.length) for (const h of hits.slice(0, 12)) lines.push(h);
   else lines.push("  （没匹配到 reasoningEffort / maxTokens 行）");
-  lines.push("本机实测代价（尺子台账 2026-11-08）：decode 80.2 tok/s、冷 prefill 112.8 tok/s、前缀缓存命中约 90%（命中省 96.2%）、引擎 total_slots:1 串行；xhigh 思考预算 8192 token ≈ 102 秒/轮。");
+  lines.push("作者机器实测代价（尺子台账 2026-11-08；你的机器速度不同，这一行是示例不是你的数）：decode 80.2 tok/s、冷 prefill 112.8 tok/s、前缀缓存命中约 90%（命中省 96.2%）、引擎 total_slots:1 串行；xhigh 思考预算 8192 token ≈ 102 秒/轮。");
   lines.push("能立刻减本插件开销的一条：注入段关掉（prompt.enabled=false）或压到 420 字（预设「本地模型·省上下文」）。");
   lines.push("要动模型档位＝改 profile 的 cordis.patch.yml（启动关键文件，改错整个界面打不开）；生效范围＝新会话，旧会话是会话级覆盖。本插件不代改，只给读数与位置。");
   return { lines };
@@ -306,7 +306,7 @@ function about(config) {
   for (const f of ["错题本.md", "沟通词典.md", "卡点卡.md", "规则书\\卡点协议.md", "AGENTS.md"]) {
     lines.push("  " + (exists(path.join(ws, f)) ? "在  " : "读不到 ") + path.join(ws, f));
   }
-  lines.push("  机制：你纠正我 → 当场往 错题本/沟通词典 各追加一行 → 第二次重犯就升成 AGENTS.md 硬线（那条每轮都注入）。所以同一个错只允许犯两次。");
+  lines.push("  机制（要工作区里有这些文件才成立）：纠正助手 → 当场往 错题本/沟通词典 各追加一行 → 第二次重犯升成 AGENTS.md 硬线（每轮注入）。这些文件不在插件包里；上面标「读不到」＝这台机器没这套规则文件，本插件的工具与自检照常用。");
   lines.push("  记忆库（跨会话）：用工具查，不靠界面——soul_recall(query=…) 捞历史原文；cg(op=\"read\", query=…) 查结构化节点（约束/决策/产物）；DSH 侧另有 hindsight / 记忆按需注入 / weknora 三个独立插件（本插件不读写它们）。");
   const memDirs = (() => { try { return fs.readdirSync(DSH_HOME).filter(n => /mem|aeis|lingshu|storages/i.test(n)).map(n => n + (exists(path.join(DSH_HOME, n)) ? "" : "?")); } catch { return []; } })();
   lines.push("  " + DSH_HOME + " 下与记忆相关的目录：" + (memDirs.length ? memDirs.join(" / ") : "（没扫到）"));
