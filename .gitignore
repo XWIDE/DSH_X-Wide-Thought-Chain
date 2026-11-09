@@ -8,3 +8,5 @@ node_modules/
 
 *.bak-*
 data/boot.log
+data/rules-private/
+data/rules-public/
