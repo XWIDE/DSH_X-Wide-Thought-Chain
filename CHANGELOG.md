@@ -2,6 +2,23 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.13] - 2026-11-09
+
+新增「规则库网上备份与发布」：把你的 `AGENTS.md`／词典／错题本／尺子／规则书按你点按钮的方式备份到**私有仓**，勾了「我认为这是好状态」才允许把**方法白名单**发到公开仓。
+
+- 新模块 `lib/rules-git.mjs`（零依赖，只用 node 内置＋git）：`collect`/`rulesStatus`/`rulesSnapshot`/`rulesMarkGood`/`rulesPublishPublic`/`rulesRestore`/`scanText`。
+- 新工具 `dsh_xwide_thought_chain_rules`（op=status|snapshot|good|publish|restore|list-good；publish/restore 必须 `confirm=true`）。
+- 设置页新第⑤组＋10 个 `rules.*` 项（每项带说明）；界面五个按钮：看漂移 / 备份到私有仓 / 标记好状态 / 发公开库（需勾选＋二次确认）/ 从私有仓拿回来（二次确认）。
+- 三道硬闸：没勾好状态不发；快照≠勾的那份不发；脱敏扫描命中不发（盘符路径、Administrator、npm_/ghp_ 令牌、密码字面、邮箱、手机号、自定义词）。
+- 安全性质：git 只在显式动作里跑（无 hook、无定时）；备份只写插件目录；恢复逐文件 `.bak-时间戳` ＋ sha256 校验后才写。
+
+实测（判定器 `_rules_backup_harness.mjs`，本地假远程全回路）：**19/19 PASS**。
+
+过程中被判定器抓到并修掉的三个真问题（都留了证据）：
+1. `git push --follow-tags origin HEAD:master` **不推 tag**（对照实验 `_probe_gitpush.cjs`：远程只有 `refs/heads/master`）→ 改成推分支后显式 `push origin refs/tags/<tag>`。
+2. 快照在提交后 `--amend` 回填清单，会把 tag 留在被换掉的旧提交上，导致 tag 推不上去 → 去掉 amend，只回填工作区清单。
+3. 恢复生成的 `.bak-*` 落在 `尺子\` 里被当正文收进快照（和 v0.1.10 npm 打进 20 个 `.bak` 同一类毛病）→ `collect` 排除 `.bak-` 与清单文件本身。
+
 ## [0.1.12] - 2026-11-09
 
 **经验库：让插件记住「做错→做对」，下个会话开工就带着这些坑。**

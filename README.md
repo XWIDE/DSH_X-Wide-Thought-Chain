@@ -111,6 +111,29 @@ node lib/selfcheck.mjs --deep   # 连 profile 的 local-plugins 一起扫路径�
 - **速度体检**——读 profile 里 `reasoningEffort` / `maxTokens` 的当前真值＋行号，算出本插件自己占多少秒，并写明「慢的大头是输出量×轮数」和「要动模型档位＝改启动关键文件，本插件不代改」。
 - **怎么运作 · 记忆在哪 · 怎么守住之前犯过的错**——列出本插件自己的值/备份/账本/档位/装载读数的真路径（逐个实测存在性），以及守错机制在哪：工作区 `错题本.md`（状态=硬线 的行每轮注入）、`沟通词典.md`、`卡点卡.md`、`规则书\卡点协议.md`；跨会话记忆用 `soul_recall(query=…)`／`cg(op="read", query=…)` 查。机制一句话：**你纠正我 → 当场往错题本/沟通词典各追加一行 → 第二次重犯就升成硬线**，所以同一个错只允许犯两次。这些文件本插件只报路径与用法，不读写。
 
+## 4.3 规则库网上备份与发布（v0.1.13）
+
+你的 `AGENTS.md`／沟通词典／错题本／尺子／规则书**不在插件包里**——它们是你工作区里的普通 md。这一节解决两件事：**换机器能拿回来**，和**你愿意时把方法送人**。
+
+| 按钮（设置页第⑤组） | 干什么 | 硬闸 |
+|---|---|---|
+| 看漂移 | 列工作区与上次快照差哪些文件 | 只读 |
+| 备份到私有仓 | 复制进插件目录 `data\rules-private` 并 git 提交＋打 tag＋推送 | **不写你工作区**；没配仓地址＝只本地提交，零上传 |
+| 标记这次是好状态 | 记一条 good 记录（勾） | 发公开库的前置条件 |
+| 把这份存到公开库 | 只发白名单里的方法文件 | ①必须先勾好状态 ②必须再点一次确认 ③**脱敏扫描零命中**才发；扫不过一个字节都不传 |
+| 从私有仓拿回来 | 按快照清单写回工作区 | 每个原件先 `.bak-时间戳`；逐文件 sha256 对得上才写 |
+
+**没有任何自动同步**：git 只在你点按钮／显式调工具时跑。插件不挂 hook、不定时任务。
+
+默认白名单（公开库）：`AGENTS.md`、卡点卡、症状卡、排障方法卡、动作一本通、短卡、交活自检清单、防修坏护栏 ＋ 尺子／规则书／契约卡 三个目录。**默认不含**错题本、沟通词典、本机工具箱、数据源地图、耗时台账、运作体系——那些是你的原话和病例，只进私有仓。
+
+脱敏扫描内置查：盘符绝对路径、`Administrator`、npm/GitHub 令牌、密码/密钥字面、邮箱、手机号，外加 `rules.scanExtra` 自定义词。命中就拒绝发布并打印命中的文件与类型。
+
+工具：`dsh_xwide_thought_chain_rules(op=status|snapshot|good|publish|restore|list-good)`；`publish`/`restore` 必须 `confirm=true`。
+设置：`rules.privateRepo` / `rules.publicRepo` / `rules.files` / `rules.dirs` / `rules.publicFiles` / `rules.publicDirs` / `rules.scanExtra` / `rules.publicVersion` / `rules.gitExe` / `rules.workspace`。
+
+判定器：`_rules_backup_harness.mjs`（本地假远程跑全回路：备份→tag 真上远程→漂移→恢复带 .bak→没勾拒发→含私货拒发且零上传→清干净才发→快照≠勾的那份拒发），实测 **19/19**。
+
 ## 5 · 退回机制（`dsh_xwide_thought_chain_rollback`）
 
 - 每次改设置前，先把当前 `settings.json` 复制到 `data/backups/settings.<时间戳>.json`；

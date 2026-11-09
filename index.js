@@ -19,9 +19,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { rulesStatus, rulesSnapshot, rulesMarkGood, rulesPublishPublic, rulesRestore, goodList, DEFAULT_FILES, DEFAULT_DIRS, DEFAULT_PUBLIC_FILES, DEFAULT_PUBLIC_DIRS } from "./lib/rules-git.mjs";
 
 export const name = "dsh-xwide-thought-chain";
-export const version = "0.1.12";
+export const version = "0.1.13";
 export const inject = ["tools", "systemPrompt", "settings"];
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -55,6 +56,7 @@ export const SETTINGS_GROUPS = [
   { id: "selfcheck", zh: "② 开机自检·看守", desc: "升级/改名/换机后的路径漂移与缺件检查" },
   { id: "prompt", zh: "③ 注入与开销", desc: "每轮往 systemPrompt 注入多少字——本插件的开销都在这" },
   { id: "disk", zh: "④ 写入与退回", desc: "记账本、备份份数、以及“只报不自动改”的总开关" },
+  { id: "rules", zh: "⑤ 规则库网上备份与发布", desc: "你的 AGENTS.md／词典／错题本／尺子／规则书 → 私有仓（你自己恢复用）；勾了「好状态」才允许把方法白名单发到公开库。只有你点按钮才跑 git，没有任何自动同步。" },
 ];
 export const SETTINGS_SCHEMA = [
   { key: "chain.steps", type: "string", group: "chain", def: "1,2,3,4,5,6", desc: "六步链启用哪几步（逗号分隔）。例：只跑取证段填 \"1,2\"；跳过复现填 \"1,2,4,5,6\"。" },
@@ -68,6 +70,16 @@ export const SETTINGS_SCHEMA = [
   { key: "prompt.order", type: "number", group: "prompt", min: 0, max: 999, def: 138, desc: "systemPrompt 段落顺序（越小越靠前）。" },
   { key: "prompt.maxChars", type: "number", group: "prompt", min: 100, max: 1500, def: 700, desc: "注入文本最长字符数（每轮一次）。实测：700→420 字每轮约省 1.7 秒等量 prefill（冷读 112.8 tok/s）；前缀缓存命中约 90%，所以「稳定」比「短」更省。" },
   { key: "write.journal", type: "boolean", group: "disk", def: true, desc: "是否把每次改设置追加进 data\\journal.jsonl（退回机制的账本）。" },
+  { key: "rules.privateRepo", type: "string", group: "rules", def: "", desc: "私有仓地址（GitHub 私有仓 https 或本地路径）。留空＝只在插件目录里 git 提交，零上传。" },
+  { key: "rules.publicRepo", type: "string", group: "rules", def: "", desc: "公开仓地址（给插件使用者下的那份方法）。留空＝不发。发之前必须先勾「我认为这是好状态」＋脱敏扫描零命中。" },
+  { key: "rules.files", type: "string", group: "rules", def: DEFAULT_FILES, desc: "私有快照收哪些文件（逗号分隔，支持前缀*）。默认含错题本与词典——那是你的命根子，只进私有仓。" },
+  { key: "rules.dirs", type: "string", group: "rules", def: DEFAULT_DIRS, desc: "私有快照收哪些目录（尺子/规则书/契约卡）。" },
+  { key: "rules.publicFiles", type: "string", group: "rules", def: DEFAULT_PUBLIC_FILES, desc: "公开库白名单：只放方法类文件。默认**不含**错题本、沟通词典、本机工具箱、数据源地图、台账、运作体系。" },
+  { key: "rules.publicDirs", type: "string", group: "rules", def: DEFAULT_PUBLIC_DIRS, desc: "公开库目录白名单。" },
+  { key: "rules.scanExtra", type: "string", group: "rules", def: "ComfyUI-aki-v3,Strata-0.1.13,8080", desc: "脱敏扫描的附加词（逗号分隔，命中就拒绝发布）。内置还查：盘符路径、Administrator、npm_/ghp_ 令牌、密码字面、邮箱、手机号。" },
+  { key: "rules.publicVersion", type: "string", group: "rules", def: "", desc: "发公开库时打的版本号（如 v1.0 → tag rules-v1.0）。留空＝用时间戳。" },
+  { key: "rules.gitExe", type: "string", group: "rules", def: "git", desc: "git 可执行文件（PATH 里有就填 git；否则填绝对路径）。" },
+  { key: "rules.workspace", type: "string", group: "rules", def: "", desc: "规则文件所在的工作区目录。留空＝自动从 homedir／DSH_WORKSPACE 推导（本包纪律：源码零绝对路径字面量）。" },
   { key: "prompt.lessons", type: "boolean", group: "prompt", def: true, desc: "把「这一版学到的规则」（lib\\lessons.json，做错→做对蒸出来的一句条）单独注入 systemPrompt 一段，让下个会话开工就带着这些坑。关掉只剩六步。" },
   { key: "prompt.lessonsCount", type: "number", group: "prompt", min: 0, max: 12, def: 6, desc: "注入前几条规则（0–12）。每条≈40 字（约 20 token）：6 条≈120 token；本机冷 prefill 112.8 tok/s ⇒ 一轮约多 1 秒，前缀缓存命中时几乎免费。全 12 条看得到面板里。" },
   { key: "write.maxBackups", type: "number", group: "disk", min: 1, max: 50, def: 10, desc: "settings.json 保留几份历史备份（data\\backups\\）。1–50。" },
@@ -249,6 +261,29 @@ const WS_CANDIDATES = [
   path.join(HOME_DIR, "Documents", "default-workspace"),
   path.join(HOME_DIR, "deepseek-harness", "default-workspace"),
 ].filter(Boolean);
+// 规则库备份的运行时配置：顶层函数不偷外层作用域（经验库 L3），配置当参数传
+function rulesCfg(S) {
+  const ws = String(S["rules.workspace"] || "").trim() || WS_CANDIDATES.find(p => exists(p)) || WS_CANDIDATES[0];
+  const split = (s) => String(s || "").split(",").map(x => x.trim()).filter(Boolean);
+  return {
+    workspace: ws, dataDir: DATA, gitExe: S["rules.gitExe"] || "git",
+    privateRepo: String(S["rules.privateRepo"] || "").trim(),
+    publicRepo: String(S["rules.publicRepo"] || "").trim(),
+    files: split(S["rules.files"] || DEFAULT_FILES),
+    dirs: split(S["rules.dirs"] || DEFAULT_DIRS),
+    publicFiles: split(S["rules.publicFiles"] || DEFAULT_PUBLIC_FILES),
+    publicDirs: split(S["rules.publicDirs"] || DEFAULT_PUBLIC_DIRS),
+    scanExtra: split(S["rules.scanExtra"] || ""),
+    publicVersion: String(S["rules.publicVersion"] || "").trim(),
+  };
+}
+// 给界面用的一行式状态（去掉体积大的明细）
+function rulesStateOf(cfg) {
+  const st = rulesStatus(cfg);
+  let snap = null;
+  try { snap = JSON.parse(fs.readFileSync(path.join(DATA, "last-snapshot.json"), "utf8")); } catch { /* 没备份过 */ }
+  return { ok: st.ok, lines: st.lines || [], changed: (st.changed || []).map(c => c.rel + "(" + c.state + ")"), good: goodList(cfg).slice(-3), snapshot: snap };
+}
 function exists(p) { try { return fs.existsSync(p); } catch { return false; } }
 function countLines(p) { try { return fs.readFileSync(p, "utf8").trim().split(/\r?\n/).filter(Boolean).length; } catch { return 0; } }
 function about(config) {
@@ -360,6 +395,26 @@ export function apply(ctx, config = {}) {
         presentResult: (_a, r) => ({ card: "generic", title: "dsh_xwide_thought_chain_config", content: String((r && r.text) || "").slice(0, 3000) }),
       },
       {
+        name: "dsh_xwide_thought_chain_rules",
+        description: "规则库网上备份与发布（只有显式调用才跑 git，没有任何自动同步）。op=status 看工作区与上次快照差哪些行；snapshot=备份进私有仓（可传 note）；good=勾「我认为这是好状态」；publish=把方法白名单发公开仓（必须先 good，脱敏扫描零命中，且 confirm=true，否则拒绝）；restore=从私有仓拿回来（逐文件 .bak-时间戳＋sha256 校验，confirm=true）；list-good=列出已勾的好状态。",
+        parameters: { type: "object", additionalProperties: false, properties: { op: { type: "string", description: "status|snapshot|good|publish|restore|list-good" }, note: { type: "string", description: "备注（snapshot/good 用）" }, tag: { type: "string", description: "restore：快照 tag；publish：要发的 good id" }, confirm: { type: "boolean", description: "publish/restore 必须 true 才动手" } }, required: ["op"] },
+        output: out, timeoutMs: 300000, isConcurrencySafe: () => false,
+        async execute(args) {
+          const a = args || {};
+          const cfg = rulesCfg(S);
+          const op = String(a.op || "status");
+          if (op === "status") { const r = rulesStatus(cfg); return { ok: r.ok, text: r.lines.join("\n") }; }
+          if (op === "snapshot") { const r = rulesSnapshot(cfg, a.note); return { ok: r.ok, text: r.text }; }
+          if (op === "good") { const r = rulesMarkGood(cfg, a.note); return { ok: r.ok, text: r.text }; }
+          if (op === "list-good") { const g = goodList(cfg); return { ok: true, text: g.length ? g.map(x => x.id + " @ " + x.markedAt + (x.note ? " — " + x.note : "")).join("\n") : "还没勾过任何快照（勾了才允许发公开库）。" }; }
+          if (op === "publish") { if (!a.confirm) return { ok: false, text: "发公开库＝往公网写东西，必须 confirm=true。先跑 op=status 看清要发什么；公开白名单见 rules.publicFiles。" }; const r = rulesPublishPublic(cfg, a.tag); return { ok: r.ok, text: r.text }; }
+          if (op === "restore") { if (!a.confirm) return { ok: false, text: "恢复会写你工作区的规则文件（每个原件先 .bak-时间戳，sha256 全对才写）。先看 op=status，再 confirm=true。" }; const r = rulesRestore(cfg, a.tag); return { ok: r.ok, text: r.text }; }
+          return { ok: false, text: "不认识的 op：" + op + "（status|snapshot|good|publish|restore|list-good）" };
+        },
+        presentCall: (a) => ({ card: "generic", title: "dsh_xwide_thought_chain_rules", content: String((a && a.op) || "status") }),
+        presentResult: (_a, r) => ({ card: "generic", title: "dsh_xwide_thought_chain_rules", content: String((r && r.text) || "").slice(0, 3000) }),
+      },
+      {
         name: "dsh_xwide_thought_chain_rollback",
         description: "退回机制：restore=true 把设置退到上一份备份；list=true 看账本（每次改动的 from/to 与备份路径）。本插件只写自己的 data\\ 目录，profile 配置一律只读。",
         parameters: { type: "object", additionalProperties: false, properties: { restore: { type: "boolean", description: "true=退回上一份设置备份" }, list: { type: "boolean", description: "true=打印改动账本" } }, required: [] },
@@ -426,12 +481,25 @@ export function apply(ctx, config = {}) {
               if (action === "delete-preset") return reply(deletePreset(String(body.name || "")));
               if (action === "slowcheck") { const r = slowCheck(config); return reply({ ok: true, lines: r.lines, cur: loadSettings(config) }); }
               if (action === "about") { const r = about(config); return reply({ ok: true, lines: r.lines, cur: loadSettings(config) }); }
+              if (action === "rules") {
+                const cfgR = rulesCfg(loadSettings(config));
+                const op = String(body.op || "status");
+                let r;
+                if (op === "snapshot") r = rulesSnapshot(cfgR, body.note);
+                else if (op === "good") r = rulesMarkGood(cfgR, body.note);
+                else if (op === "publish") r = body.confirm === true ? rulesPublishPublic(cfgR, body.tag) : { ok: false, text: "发公开库需要 confirm=true：界面上先勾「我认为这是好状态」再点发布。" };
+                else if (op === "restore") r = body.confirm === true ? rulesRestore(cfgR, body.tag) : { ok: false, text: "恢复会写你工作区的规则文件（原件先 .bak），需二次确认。" };
+                else { const st0 = rulesStatus(cfgR); r = { ok: st0.ok, text: st0.lines.join("\n") }; }
+                logBoot("route: rules op=" + op + " ok=" + r.ok);
+                return reply({ ok: r.ok, text: r.text, rulesState: rulesStateOf(cfgR), cur: loadSettings(config) });
+              }
               return reply({
                 ok: true, version,
                 groups: SETTINGS_GROUPS,
                 items: SETTINGS_SCHEMA.map(m => ({ key: m.key, type: m.type, group: m.group, min: m.min, max: m.max, def: m.def, desc: m.desc })),
                 presets: allPresets(),
                 lessons: readLessons(),
+                rulesState: rulesStateOf(rulesCfg(loadSettings(config))),
                 cur: loadSettings(config),
               });
             } catch (e) { logBoot("route: 异常 " + (e && e.message)); return reply({ ok: false, text: String((e && e.message) || e) }); }
