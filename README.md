@@ -1,6 +1,6 @@
 ![X-WIDE · I BELIEVE](./assets/xwide.png)
 
-# DSH-X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.14
+# DSH-X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.28
 
 > 把一条排障/交付的**思考链**装进 DeepSeek Harness，外加一个**零依赖开机自检**：DSH 升级、安装目录改名、插件丢失时，不再靠人肉从头摸形状。
 
@@ -8,6 +8,19 @@
 - 许可：**MIT**（见 [LICENSE](./LICENSE)，含署名说明）· 变更历史见 [CHANGELOG.md](./CHANGELOG.md)
 - **运行时零依赖**：`package.json` 无任何 `dependencies`——宿主侧只用 node 内置模块（`node:fs` / `node:path` / `node:url`），设置页只用浏览器 `fetch` ＋宿主提供的 React（`require("react")`）。**不需要装本仓库以外的任何插件，也不依赖本机那些守卫/记忆插件**；本地模型与云模型同用。
 - **依赖边界（发布时说明清楚）**：本插件只读写**自己目录内**的文件（`data\settings.json`、`data\backups\`、`data\journal.jsonl`、`data\presets.json`、`data\boot.log`）。设置页里的「速度体检」「说明书」是**只读**面板：会读 profile 的 `cordis.patch.yml` 与工作区规则文件的**存在性与行内容**来报路径，绝不写它们；跨插件（守卫、记忆按需注入、hindsight、weknora）本版**不读写、不联动**。设置页要重启 DSH 才装载（web 侧在启动时组包）。
+
+---
+
+## 本版本更新了什么（v0.1.15 → v0.1.28）
+
+逐版明细见 [CHANGELOG.md](./CHANGELOG.md)，这一段是首页速览：
+
+- **重启前体检闸**（`lib/bootcheck.mjs`，新增）：防「写程序把 DSH 写坏到开不了机」。两道关——用宿主自带 node 对 profile `local-plugins` 下**全部插件**的 `.js/.mjs/.cjs` 跑 `--check`；再 tail `harness.log` 扫已知装载崩溃签名。全绿才提示「可以重启」。总开关 `bootcheck.enabled`（默认开），**平时不扫不跑**，只在点「跑体检」那一刻动。
+- **8080 看门狗并入设置页**（`lib/watchdog.mjs`）：真 TCP 探活 → 连续 N 次确认才算 DOWN → 冷却＋每小时上限防重启风暴 → 按当前活模型查表拉起对应启动器 → 重启后复验端口；聊天路由切云端时自动休眠。默认关（开启＝授权引擎崩时自动重启本地后端）。
+- **启动器选择器重做**：下拉改可见勾选清单（点谁锁谁、当前活模型标记、常驻「已锁定拉起」行＋清除锁定），加过滤框即时筛；默认筛掉 `uninstall/setup/install/readme/backup/update/selftest/doctor/status/stop/kill/shutdown/cleanup/reset` 这类非启动器项，「含杂项」＝逃生门。顺带修好「选不上」（`watchdog.launcher` 之前没进设置白名单，写入被后端拒）。
+- **经验库自长**（`lib/lessons-user.mjs`）：使用者自己攒的「做错→做对」条目存 `data/lessons-user.json`，升级插件不动它、不进包；同条第二次命中自动 promoted。
+- **退役体外哨兵**：`lib/sentinel.mjs` → `sentinel.mjs.retired-2026-11-16`。原思路（注册开机自启计划任务裸起 DSH）作废——DSH 起来就带着看门狗，不必体外自启。
+- **发布前脱敏**：用户可见文案里的作者机器示例路径换成中性占位符，开机自检 C2「自家源码零死路径」由 NOT-PASS 转 PASS（现 7/7 全绿）；npm 包从 95 文件 / 1.58 MB 瘦到 18 文件 / 1.2 MB。
 
 ---
 
