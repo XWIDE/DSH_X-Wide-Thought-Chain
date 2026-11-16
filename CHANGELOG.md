@@ -2,6 +2,13 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.29] - 2026-11-16
+
+发布物对齐：GitHub 首页渲染的是 README，光改 CHANGELOG 网页看着「没更新」；npm 包里那份 README 也停在旧版本号。
+- **README 首页加「本版本更新了什么（v0.1.15 → v0.1.28）」速览段**：体检闸、看门狗并入、启动器选择器重做、经验库自长、退役体外哨兵、发布前脱敏——六条各一句，逐版明细链到 CHANGELOG。标题版本号跟上。
+- **install.md 版本头跟上**，并写死一条红线：**方式 A（local-plugins）与方式 B（npm）二选一**——同一 profile 出现两条 loader 行指向两份 `index.js`＝重复 loader id / 同名工具，DSH 直接起不来（官方有专门 skill 修这病）。
+- npm 包发布通道实测：公网无鉴权下载 tarball，本地 SHA1 与 registry `dist.shasum` 逐字相同才算「市场里下载得到」。
+
 ## [0.1.28] - 2026-11-16
 
 体检闸三处按用户反馈修对：说明写清真话、加总开关（默认开）、扫描启动列表筛垃圾。

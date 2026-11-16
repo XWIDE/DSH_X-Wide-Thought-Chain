@@ -1,6 +1,6 @@
 ![X-WIDE · I BELIEVE](./assets/xwide.png)
 
-# DSH-X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.28
+# DSH-X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.29
 
 > 把一条排障/交付的**思考链**装进 DeepSeek Harness，外加一个**零依赖开机自检**：DSH 升级、安装目录改名、插件丢失时，不再靠人肉从头摸形状。
 

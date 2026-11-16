@@ -24,7 +24,7 @@ import { createWatchdog, readActiveModel } from "./lib/watchdog.mjs";
 import { bootCheck } from "./lib/bootcheck.mjs";
 
 export const name = "dsh-xwide-thought-chain";
-export const version = "0.1.28";
+export const version = "0.1.29";
 export const inject = ["tools", "systemPrompt", "settings"];
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));

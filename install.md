@@ -1,7 +1,9 @@
-# 装法 · DSH_X-Wide-Thought-Chain v0.1.14
+# 装法 · DSH_X-Wide-Thought-Chain v0.1.29
 
 > 本插件**不写、不改、也不读** profile 的 patch 配置；它只写自己目录下的 `data\`。
 > 装载那一行由你自己加——那个文件是 DSH 启动关键路径，改坏就起不来。
+>
+> ⚠️ **方式 A 与方式 B 二选一，别装两份。** 同一 profile 里出现两条 loader 行指向两份 `index.js`＝重复 loader id ＋ 同名工具，DSH 会直接起不来（官方有专门的 skill 修这病）。装了 A 就别再 `npm i`，反之亦然。
 
 ## 方式 A · 本地插件目录（推荐，零 npm）
 
@@ -17,7 +19,7 @@
 
    `id` 必须全 profile 唯一——重复 loader id 会让 DSH 启动崩溃（官方有专门的 skill 修这个病）。
 4. **重启 DSH**（插件在启动时装载，不重启不生效）
-5. 验证：让助手跑 `dsh_xwide_thought_chain_selfcheck` → 末行应是 `SELFCHECK = PASS 6/6`
+5. 验证：让助手跑 `dsh_xwide_thought_chain_selfcheck` → 末行应是 `SELFCHECK = PASS 7/7`
 
 ### （可选）在装载行里直接覆盖设置（优先级高于 `data/settings.json`）
 
