@@ -2,12 +2,132 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.28] - 2026-11-16
+
+体检闸三处按用户反馈修对：说明写清真话、加总开关（默认开）、扫描启动列表筛垃圾。
+- **作用①扫描范围扩到真·开机面**：`bootcheck.mjs` 从「只扫本插件目录」改成扫 profile 的 `local-plugins` 根下【全部插件】的 `.js/.mjs/.cjs`（路径从自身位置派生，零绝对路径字面量）。实测一次扫到 **14 个插件 / 27 个文件全过**——这才对上「防写坏 DSH 到开不了机」的原意（DSH 启动装载的就是这一坨，任何一个语法炸下次就开不了机）。
+- **说明写对**（用户原话：「说明没什么意义…要写清楚扫哪些文件、防什么」）：界面文案 + 后端注释都改成点名「扫 local-plugins 全部插件语法」「tail harness.log 崩溃签名」「绿了才提示可重启」。
+- **加总开关 `bootcheck.enabled`（默认 true）**：不勾＝整块隐藏、零开销（平时不扫不跑，只在点「跑体检」那刻动）。后端路由关掉时直接拒绝跑。
+- **扫描启动列表筛垃圾**（用户原话：「过滤里还是很多没用的东西，不好用」）：`scan-launchers` 默认筛掉 `uninstall/setup/install/readme/copy/backup/update/version/selftest/doctor/status/stop/kill/shutdown/reboot/cleanup/reset` 这类明显不是启动器的项；「含杂项」勾选＝逃生门（连 `.ps1/.lnk` 一起列、且不筛垃圾全给你看）。
+- **发布前脱敏**（发公开仓/npm 前扫出的作者机器私货）：用户可见文案里的示例路径 `F:\Strata-0.1.13`、`F:\...\run-swift-iq3_s.bat` 等 5 处换成中性占位符（`<你的启动器目录>`／「你的启动器文件夹全路径」），涉及 [index.js](index.js)、[lib/client.js](lib/client.js)、[lib/watchdog.mjs](lib/watchdog.mjs)。附带把开机自检 C2「自家源码零死路径」从 NOT-PASS 修成 PASS（现 7/7 全绿）。
+
+## [0.1.27] - 2026-11-16
+
+把「哨兵」按用户澄清的两个真作用重做：① 保本地模型（看门狗，已有，实测在跑）② 防写坏 DSH 到开不了机。删掉造歪的「裸起 DSH 体外哨兵」。
+- **新增 `lib/bootcheck.mjs`「重启前体检闸」**（作用②）：点一下跑两道关——(1) 用宿主自带 node 对插件全部 `.js/.mjs` 跑 `--check`（任一不过＝下次装载必炸）；(2) tail `harness.log` 扫已知装载崩溃签名（plugin tree failed to load / failed to apply loader entry / duplicate loader entry id / Cannot find module / SyntaxError）。全绿才提示「可以重启」。零依赖、零绝对路径字面量、只读不碰活的 DSH、不自动扫。
+- **接线**：index.js import 由 sentinel 换 bootCheck + `bootcheck` action；client.js `WdSentinelRow` → `WdBootCheckRow`（跑体检测验按钮＋判定行）。
+- **退役**：`lib/sentinel.mjs` 改名 `sentinel.mjs.retired-2026-11-16` 保留不硬删（bootcheck 的 walkJs 不匹配该扩展名，语法关不受影响）。作用①看门狗 `watchdog.mjs` 原样保留（实测 watchdog.log 有 heartbeat，在盯 8080）。
+
+## [0.1.26] - 2026-11-16
+
+新增「DSH 体外哨兵」：插件死在 DSH 里救不了 DSH，装一个开机自启计划任务当体外哨兵，DSH 主进程没了就裸起它。
+- **新文件 `lib/sentinel.mjs`**：动态认 DSH（问 OS「我父进程的 exe 是哪个」，零写死名字/路径）→ 生成脚本 → 注册/注销计划任务 `DshSentinel` → 读状态+日志尾。bundled 脚本 param 默认全空、真值由计划任务当参数传入（源码零绝对路径字面量）。
+- **安全**：幂等（count==0 才拉起）＋冷却＋每小时上限防重启风暴＋`.off` 停用开关；DryRun/MaxLoops 供判定器验。
+- **接线**：index.js 加 import + `sentinel-install/uninstall/status` 三 action；client.js 加 `WdSentinelRow` 组件（安装/卸载按钮＋状态＋日志尾），挂在运行引擎选择器后。
+- **修**：日志函数起名 `SL` 撞 PowerShell 内置别名 `sl`(Set-Location，别名优先级压过函数)→全文炸 PathNotFound；改名 `Write-SLog`。`Test-Path $OffFlag` 补空串守卫。
+
+## [0.1.25] - 2026-11-16
+
+修「选不上」根因：`watchdog.launcher` 之前没进 SETTINGS_SCHEMA。
+
+- **根因**：index.js `setSetting` 用 `SETTINGS_SCHEMA.find(m=>m.key===key)` 白名单校验，非 schema 键直接 `return {ok:false,"没有这个设置项"}`；勾选框写 `watchdog.launcher` 被后端拒 → 界面永远显示没勾上＝「选不上」。同时 `loadSettings` 只遍历 schema，该键永不出现在回传 cur 里。
+- **修**：schema 补一行 `{ key:"watchdog.launcher", type:"string", group:"watchdog", def:"" }`（正常显示，不标 advanced）。
+- **加常驻「已锁定拉起：xxx」行**：读 watchdog.launcher，独立于过滤/勾选清单——过滤把锁定的筛没皮也看得见，带「清除锁定」按钮直接解。
+
+## [0.1.24] - 2026-11-16
+
+启动器选择改成「可见勾选清单」＋「过滤」框（用户：只显示有用的／实在不放心给个显示的勾选）。
+
+- **下拉 select → 勾选清单**：扫出的每项一行 checkbox，点谁锁谁（写 watchdog.launcher），当前活模型行带 ←当前模型，已锁的带（已锁定拉起）；容器 maxHeight 300px 可滚。
+- **过滤框**：纯前端子串筛（不分大小写，空＝全列），打字即时生效不重扫；筛没了提示「改改字或清空」。
+- 放弃「按内容嗅探自动挑」：实测 14 个 .bat 里嗅探 KEEP 5 个但把 `切到-UD.bat`/`切到-IQ3_S.bat`（间接启动器，调 stop-all-engines.ps1 + start run-*.bat）DROP 了——插件不猜名字、不猜内容，列表由过滤框交给用户。
+
+## [0.1.23] - 2026-11-16
+
+扫描启动器默认只显示 .bat/.cmd（42 项里大半是 ADOPT/BENCH/FIX 等 .ps1 杂项，列表太长难挑）。
+
+- **修法**：index.js scan-launchers 按 `body.all` 分档——不传/假＝只列 `.bat/.cmd`；`all:true`＝连 `.ps1/.lnk`。client.js 加「含杂项（.ps1/.lnk）」勾选（默认不勾），传给后端。只按扩展名过滤，不写死任何文件名（插件名无关纪律不变）。
+
+## [0.1.22] - 2026-11-16
+
+修「启动器下拉展开后字看不见」（深色主题下原生 select 列表是白底＋浅灰字，只有高亮行能读）。
+
+- **修法**：给 `WdLauncherPicker` 的 `<select>` 和每个 `<option>` 强制 `background:#fff; color:#111`（黑字白底），不随深色主题走灰。
+
+## [0.1.21] - 2026-11-16
+
+修「扫描启动器报 `readActiveModel is not defined`，下拉点不开」。
+
+- **根因**：index.js 第 447、598 行调用 `readActiveModel(port,{})`（扫启动器时读当前活模型），但顶部 import 只带了 `createWatchdog`，没带这个函数 → 运行时 ReferenceError → 扫描整体抛异常 → files 为空 → 下拉保持禁用。
+- **修法**：line 23 import 补成 `import { createWatchdog, readActiveModel } from "./lib/watchdog.mjs"`（`readActiveModel` 在 watchdog.mjs:27 确为 export）。一行。
+
+## [0.1.20] - 2026-11-16
+
+「运行引擎」选择器搬到**页面最前面** + 修「扫描目录打字不生效」。
+
+- **搬家**：运行引擎选择器从 watchdog 组内（maxPerHour 行下方）移到页面最顶部（scope 行之后、自学习工具条之前）。用户原话「他就应该是在最前面，不是埋在看守/看门狗那块」。标题改「运行引擎 · 思维链跑在哪个后台模型上」（去掉「看门狗拉哪个模型」的局部措辞）。
+- **修真 bug**：扫描目录输入框旧版 `onChange` 是空函数 `(e)=>{}`，只在 `onBlur` 落盘——打字时 React 受控值弹回空，看着像填了、点扫描却说「先填扫描目录」。改成**本地状态即时接管 + onChange 当场落盘**，占位符文案写明「灰字只是示例不算填」。
+- **语义如实标注**：说明里写清这选的是「崩了拉起谁＋高亮当前活模型」，切换正在跑的模型本身在启动表/端口那边做，界面点不动——不夸大成一键切换。
+- 名字无关纪律不破：扫描目录由用户填、不写死任何绝对路径；模型 id 来自运行时 `/v1/models`。
+
+## [0.1.19] - 2026-11-16
+
+看门狗设置面板**精简 + 重做运行引擎选择**（用户原话「整体设计过于复杂，只暴露我调节有用的东西，要有详细说明往哪调会怎样」「扫描后旁边应该可以选择我启动的哪一个，不勾＝自动选」）。
+
+- **运行引擎总开关** `watchdog.manualLock`（默认 false＝自动）：不勾＝看门狗自己从 `/v1/models` 认当前活模型，啥都不用选；勾上＝手动锁定，才出扫描区，下拉**常驻显示**（没扫时灰着写「先点扫描」），扫完旁边即可选 → 选中即锁死拉起它。修旧版「下拉扫完才出现、还挤在按钮行里看不见」。
+- **面板分层**：标 `advanced:true` 的 8 项（port/downChecks/logPath/dryRun/modelLaunchers/localRouteOnly/scanDir/autoScan）收进「高级设置（N 项，一般不用动）」折叠，默认收起；只露 enabled / intervalSec / cooldownSec / maxPerHour / manualLock。
+- **详细调节说明**：露出的每个数值项说明都补「往小调怎样 / 往大调怎样」（如 intervalSec 往小＝发现快恢复快但探测频，往大＝省开销但崩了慢发现）。
+- 布局前序修正：状态读数移进档位组红框位、删 watchdog.launcher 独立行、扫描选择器顶到其原槽位。
+- 名字无关纪律不破：不假设引擎名、不写死路径，目录用户填、模型 id 来自 `/v1/models`、启动器路径下拉选。源码零绝对路径字面量。
+
+## [0.1.18] - 2026-11-16
+
+看门狗设置面板加**扫描启动器 + 下拉挑**（用户原话「扫描出来我有几个启动，让他自己选」），并修「状态反馈跑到页尾看不见」。
+
+- 新工具 `dsh_xwide_thought_chain_watchdog_scan`：给目录扫 `.bat/.cmd/.ps1/.lnk` + 读当前活模型 id，吐出可粘进 `watchdog.modelLaunchers` 的候选清单（只读、不拉起引擎）。
+- 设置面板 watchdog 组内嵌选择器 `WdLauncherPicker`：**扫描目录**输入框 + **「扫描启动器」按钮**（点一下才扫）+ 扫完出**下拉**挑启动器写进 `watchdog.launcher`。新勾项 `watchdog.autoScan`（默认 false＝不每次进页都扫盘，省性能；勾上＝进页自动扫一次）；新填项 `watchdog.scanDir`。
+- 宿主侧新 HTTP 动作 `scan-launchers`（走既有 `/api/xwide/settings` 通道，鉴权在内核）。
+- 界面小修：档位/保存的状态读数从页尾挪到页首工具条下方（用户「不应该放到最下面」，点完档位滚到底才看见＝没用）。
+- 名字无关纪律不破：插件不假设引擎叫 ollama/lmstudio/Strata，不写死任何启动器路径——目录由用户填、模型 id 来自运行时 `/v1/models`、启动器路径由下拉选。源码零绝对路径字面量。
+
+生效范围＝**重启 DSH** 装载（改了 client.js 界面半部 + index.js 路由/schema）。判定器：`node --check` 三文件 exit=0；宿主 scan 动作对作者的启动器目录实测列出 bat 数与活模型 id；DOM 可见性需重启后在页面点按钮验（语法通≠看得见）。
+
+## [0.1.17] - 2026-11-16
+
+看门狗加**自发现选模型**：不再写死一个启动器，治「watchdog 对 UD-Q4_K_XL 没作用」+「切模型后恢复成错模型」。
+
+- 健康期每次 tick 顺手读 `http://127.0.0.1:<port>/v1/models`，记下当前活模型 id（取**主 id 不取 alias_of 别名**——本机实测主 id=`swift-1.5-iq3_s`、UD 是它的 alias，故映射按主 id 匹配绕开别名坑）。DOWN 时按新设置 `watchdog.modelLaunchers`（JSON 对象 `{模型id: 启动器绝对路径}`）选对应模型的启动器拉起；表里没有的模型退到 `watchdog.launcher` 兜底。
+- 新设置 `watchdog.localRouteOnly`（默认 true）：**云端路由休眠闸**——读 `cordis.patch.yml`，只有当聊天 baseURL 指向本地 `localhost/127.0.0.1:<本端口>` 时才看守；切到云端模型（baseURL 不是本地该端口）自动休眠，不误重启你没用着的本地引擎。读不到 cordis 时保守当作本地（保持看守）。
+- 名字无关设计：插件不假设对方用 ollama/lmstudio/Strata，也不假设启动器文件名——守哪个端口来自 cordis 的 baseURL，模型 id 来自运行时 `/v1/models`，启动器路径由用户在自己机器的设置里填，源码零硬编、零绝对路径字面量。
+- 实测判定器：对本机活 8080 → `probePort=true`、`readActiveModel="swift-1.5-iq3_s"`（主 id）、映射命中 `run-swift-iq3_s.bat`；`node --check` 两文件 exit=0。
+
+## [0.1.16] - 2026-11-16
+
+新增 **⑥ 8080 看门狗**（把「之前那个真有作用的看门狗」`_strata_watchdog.ps1` 的核心逻辑移植进插件，不是空壳）：
+
+- 新内核 `lib/watchdog.mjs`，逐条搬原脚本判据：真 TCP 连接探活 → 连续 `downChecks` 次确认才算 DOWN → 冷却 `cooldownSec` + 小时上限 `maxPerHour` 防重启风暴 → 跑启动器并记下它吐的行 → 重启后等 20s 复验端口（OK/PENDING）→ 双日志路径。铁证＝`F:\Strata-0.1.13\strata-watchdog.log` 2026-11-04 多次 DOWN(2/2)→RESTART→back up。
+- 与 C7 的分工：**C7 自检内核保持「只检测不重启」**；本模块是**独立的、默认关闭的** opt-in 看守，只在 `watchdog.enabled=true` 时由 `apply()` 起一个 `unref` 定时器周期调用。开启＝显式授权插件在引擎崩了时自动重启 8080（自杀红线：会杀当前聊天后端），故默认 false，且 `dryRun` 可先验判据不惊动引擎。
+- 源码零绝对路径字面量：启动器 / 日志路径全从设置来，本机值写在 `data\settings.json`。
+- 新设置组 `watchdog`（enabled/port/intervalSec/downChecks/cooldownSec/maxPerHour/launcher/logPath/dryRun）。
+
+生效范围：所有使用者；需**重启 DSH** 装载。判定器：`node --check index.js` 绿；对本机活 8080 调探活返回 true；`watchdog.enabled=true` 后 boot.log 出现「看门狗已启动」行。
+
+## [0.1.15] - 2026-11-16
+
+新增 **C7 路由端口对账**（看门狗判据搬进插件）：把外部 `_strata_guard_once.ps1` / `_strata_watchdog.ps1` 的核心判据——「profile 的 `cordis.patch.yml` 里 baseURL 写到的 localhost 端口，必须真有人 TCP 监听」——移植成自检内核的第 7 项。病例＝2026-11-16 那次 baseURL 被指到没人监听的 8090，引擎一直在 8080 好着，DSH 连不上却没有任何自检能发现。
+
+- 读 `../cordis.patch.yml` 的 baseURL，抽出所有 `localhost/127.0.0.1:<port>`，逐个用 `node:net` 真连一次（3 秒超时），任一端口连不上＝报红，处方给启动表命令。
+- **只检测不重启**：常驻循环会卡死宿主、自动重启违反自检内核「只报不改」纪律，故这两条留在外部的计划任务里。
+- 新设置开关 `selfcheck.routePort`（默认开）。因走命令行入口，计划任务在 DSH 进程外也能跑同一份内核。
+
+生效范围：所有使用者；需**重启 DSH** 装载。判定器：`node lib/selfcheck.mjs` 出现 C7 行，当前 8080 活→绿，临时指错端口→红。
+
 ## [0.1.14] - 2026-11-09
 
 只改**对外可见的措辞与默认值**（功能零改动）——上一版第⑤组是照作者个人写的，别人装上会看不懂：
 
 - 栏目标题去掉「你的命根子／你送人的方法」→ 「私有仓＝自己的备份；公开仓＝你愿意分享的方法」（中英各一份）。
-- `rules.scanExtra` 默认从作者的机器专属词（`ComfyUI-aki-v3,Strata-0.1.13,8080`）**改成空**：那三个名字是作者机器上的项目名/目录名/端口，别人装上等于白扫。要用的词请自己填（作者本人的已写进他自己的 `data\settings.json`，扫描行为不变）。
+- `rules.scanExtra` 默认从作者的机器专属词（`<项目名>,<安装目录名>,<端口>`）**改成空**：那三个名字是作者机器上的项目名/目录名/端口，别人装上等于白扫。要用的词请自己填（作者本人的已写进他自己的 `data\settings.json`，扫描行为不变）。
 - 设置说明与说明书里的速度数字统一标注为**作者机器实测**（decode 80.2 tok/s、冷 prefill 112.8 tok/s），并指向面板「速度体检」自量——不再冒充通用值。
 - 文件/目录白名单说明写明：**默认值是示例文件名**，使用者按自己工作区增删；含个人病例与原话的文件建议只进私有仓。
 - 「怎么守住之前犯过的错」那段补一句：这些规则文件不在包里，标「读不到」＝这台机器没这套文件，工具与自检照常用。

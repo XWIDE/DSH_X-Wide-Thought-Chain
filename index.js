@@ -20,9 +20,11 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { rulesStatus, rulesSnapshot, rulesMarkGood, rulesPublishPublic, rulesRestore, goodList, DEFAULT_FILES, DEFAULT_DIRS, DEFAULT_PUBLIC_FILES, DEFAULT_PUBLIC_DIRS } from "./lib/rules-git.mjs";
+import { createWatchdog, readActiveModel } from "./lib/watchdog.mjs";
+import { bootCheck } from "./lib/bootcheck.mjs";
 
 export const name = "dsh-xwide-thought-chain";
-export const version = "0.1.14";
+export const version = "0.1.28";
 export const inject = ["tools", "systemPrompt", "settings"];
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -57,6 +59,7 @@ export const SETTINGS_GROUPS = [
   { id: "prompt", zh: "③ 注入与开销", desc: "每轮往 systemPrompt 注入多少字——本插件的开销都在这" },
   { id: "disk", zh: "④ 写入与退回", desc: "记账本、备份份数、以及“只报不自动改”的总开关" },
   { id: "rules", zh: "⑤ 规则库网上备份与发布", desc: "工作区的规则文件（AGENTS.md、词典、笔记、方法目录）→ 私有仓备份，随时可取回；勾了「好状态」并通过脱敏扫描，才允许把方法白名单发到公开仓。只在点按钮时跑 git，零自动同步。" },
+  { id: "watchdog", zh: "⑥ 8080 看门狗", desc: "搬自 _strata_watchdog.ps1 的核心逻辑：TCP 真连接探活，连续确认 DOWN 后跑启动器拉起引擎，带冷却+小时上限防重启风暴，重启后复验端口。默认关——开启＝授权插件在引擎崩了时自动重启 8080（会杀当前聊天后端）。" },
 ];
 export const SETTINGS_SCHEMA = [
   { key: "chain.steps", type: "string", group: "chain", def: "1,2,3,4,5,6", desc: "六步链启用哪几步（逗号分隔）。例：只跑取证段填 \"1,2\"；跳过复现填 \"1,2,4,5,6\"。" },
@@ -66,6 +69,7 @@ export const SETTINGS_SCHEMA = [
   { key: "selfcheck.scanDirs", type: "string", group: "selfcheck", def: "", desc: "额外要扫的目录，分号分隔。留空＝插件自身 + profile 的 local-plugins。" },
   { key: "selfcheck.inventoryFile", type: "string", group: "selfcheck", def: "inventory.json", desc: "配方清单文件名（在插件 data\\ 下）。缺件检查按它逐条 existsSync。" },
   { key: "selfcheck.staleLogHours", type: "number", group: "selfcheck", min: 0, max: 336, def: 72, desc: "崩溃日志超过多少小时算陈旧（提示启动器没在用）。0＝不检查。" },
+  { key: "selfcheck.routePort", type: "boolean", group: "selfcheck", def: true, desc: "路由端口对账：读 profile 的 cordis.patch.yml，凡 baseURL 写到的 localhost 端口都真去 TCP 连一次，没人监听就报红（判据搬自 _strata_guard_once.ps1；只检测不重启）。0＝关闭。" },
   { key: "prompt.enabled", type: "boolean", group: "prompt", def: true, desc: "是否向 systemPrompt 注入这条链的一句话提醒。关掉后只剩工具。" },
   { key: "prompt.order", type: "number", group: "prompt", min: 0, max: 999, def: 138, desc: "systemPrompt 段落顺序（越小越靠前）。" },
   { key: "prompt.maxChars", type: "number", group: "prompt", min: 100, max: 1500, def: 700, desc: "注入文本最长字符数（每轮一次）。作者机器实测：700→420 字每轮约省 1.7 秒等量 prefill（冷读 112.8 tok/s）；前缀缓存命中约 90%，所以「稳定」比「短」更省。" },
@@ -84,6 +88,21 @@ export const SETTINGS_SCHEMA = [
   { key: "prompt.lessonsCount", type: "number", group: "prompt", min: 0, max: 12, def: 6, desc: "注入前几条规则（0–12）。每条≈40 字（约 20 token）：6 条≈120 token；作者机器冷 prefill 112.8 tok/s（你的机器请自量）⇒ 一轮约多 1 秒，前缀缓存命中时几乎免费。全 12 条看得到面板里。" },
   { key: "write.maxBackups", type: "number", group: "disk", min: 1, max: 50, def: 10, desc: "settings.json 保留几份历史备份（data\\backups\\）。1–50。" },
   { key: "safety.allowMutate", type: "boolean", group: "disk", def: false, desc: "总开关：false＝自检只报问题 + 给命令，绝不自动改任何东西；true＝允许插件自己写文件（仍先备份，且只写插件自己的 data\\）。" },
+  { key: "watchdog.enabled", type: "boolean", group: "watchdog", def: true, desc: "看门狗总开关。开＝周期探活，引擎崩了自动跑启动器拉起 8080（＝授权它杀当前聊天后端重启）；关＝完全不跑，等于没装。" },
+  { key: "watchdog.port", type: "number", group: "watchdog", min: 1, max: 65535, def: 8080, advanced: true, desc: "要看守的端口（TCP 真连接探活）。本机聊天后端＝8080，一般别动。" },
+  { key: "watchdog.intervalSec", type: "number", group: "watchdog", min: 15, max: 3600, def: 60, desc: "每隔多少秒探一次活（15–3600）。往小调（如 15–30）＝崩了发现得快、恢复快，代价是探测更频繁；往大调（如 300+）＝开销省，代价是崩了要等更久才被发现。默认 60＝一分钟一查，够稳。" },
+  { key: "watchdog.downChecks", type: "number", group: "watchdog", min: 1, max: 10, def: 2, advanced: true, desc: "连续几次探不到才算真 DOWN（躲一次抖动）。1–10。设 1＝一探不到就重启（敏感，易误判）；越大越能扛网络抖动，但真挂了要多等几拍才动手。原脚本用 2。" },
+  { key: "watchdog.cooldownSec", type: "number", group: "watchdog", min: 60, max: 7200, def: 300, desc: "两次自动重启之间至少隔多少秒（60–7200）。往小调＝重启挨得紧，引擎还没起来（冷启要 2-3 分钟）就又拉一次，易叠着失败；往大调＝给足启动时间，恢复慢些但稳。默认 300＝5 分钟，盖过引擎冷启。" },
+  { key: "watchdog.maxPerHour", type: "number", group: "watchdog", min: 1, max: 60, def: 4, desc: "一个冷却窗内最多自动重启几次（1–60），超了就只报「需要人工」不再自动重启。往小调（如 1–2）＝更早刹车少折腾，但偶发连环崩时放弃得快；往大调＝容忍更多次自愈，代价是可能反复重启空烧。默认 4＝给 4 次机会还不行就交人工。" },
+  { key: "watchdog.logPath", type: "string", group: "watchdog", def: "", advanced: true, desc: "看门狗日志文件。留空＝写插件自己的 data\\watchdog.log；写不进会退到 data\\watchdog.local.log。填绝对路径可指到你习惯看的位置。" },
+  { key: "watchdog.dryRun", type: "boolean", group: "watchdog", def: false, advanced: true, desc: "true＝只记「本该跑哪个启动器」，不真拉起。用来先验判据对不对、不惊动引擎。" },
+  { key: "watchdog.modelLaunchers", type: "string", group: "watchdog", def: "", advanced: true, desc: "自发现映射：JSON 对象 {模型id: 启动器绝对路径}，例 {\"swift-1.5-iq3_s\":\"<启动器目录>\\run-swift-iq3_s.bat\",\"qwen3.8-flash-next-ud-q4_k_xl\":\"<启动器目录>\\run-ud-q4_k_xl.bat\"}。看门狗健康期从 /v1/models 读当前活模型 id，DOWN 时按此表拉起对应模型的启动器（不再写死一个）。表里没有的模型退到 watchdog.launcher 兜底。" },
+  { key: "watchdog.localRouteOnly", type: "boolean", group: "watchdog", def: true, advanced: true, desc: "true＝只在「聊天路由 baseURL 指向本地(localhost/127.0.0.1):本端口」时才看守；切到云端模型时自动休眠，不误重启你没用着的本地引擎。判据读 cordis.patch.yml。false＝不管路由一直守。" },
+   { key: "watchdog.scanDir", type: "string", group: "watchdog", def: "", advanced: true, desc: "扫描目录：勾了上面「手动锁定」后，「扫描启动器」按钮去这个目录列 .bat/.cmd/.ps1/.lnk，给你下拉挑，省得手敲绝对路径。填你的启动器所在文件夹（例：你的启动器文件夹全路径）。" },
+   { key: "watchdog.autoScan", type: "boolean", group: "watchdog", def: false, advanced: true, desc: "true＝进设置页自动扫一次 scanDir 填下拉；false（默认）＝不扫，只在你点「扫描启动器」按钮时才扫。性能敏感就别勾。" },
+   { key: "watchdog.manualLock", type: "boolean", group: "watchdog", def: false, desc: "运行引擎总开关。false（默认）＝自动：看门狗自己从 /v1/models 认当前活模型，DOWN 时按 modelLaunchers 表拉对应启动器，你啥都不用选。true＝手动锁定：只看门狗拉你在下面下拉里挑的那个启动器（写进 watchdog.launcher）。想固定跑某个模型才勾。" },
+   { key: "watchdog.launcher", type: "string", group: "watchdog", def: "", desc: "手动锁定要拉起的启动器绝对路径（勾「手动锁定」后，在下面勾选清单点谁就是谁，自动写这里；也可手敲绝对路径）。0.1.24 前这键没进 schema，导致勾选写了被后端拒、界面选不上——现补上。" },
+   { key: "bootcheck.enabled", type: "boolean", group: "watchdog", def: true, desc: "重启前体检闸总开关。勾上（默认）＝界面显示「跑体检」按钮，点一下扫 local-plugins 全部插件语法＋harness.log 崩溃签名，绿了才提示可重启 DSH。不勾＝隐藏该功能（不想用就关掉，零开销，平时不扫不跑）。" },
 ];
 
 // ── 预设档位：一次点一下，把上面四类一次配好。数值来自本机实测（尺子台账：decode 80.2 tok/s、
@@ -415,6 +434,38 @@ export function apply(ctx, config = {}) {
         presentResult: (_a, r) => ({ card: "generic", title: "dsh_xwide_thought_chain_rules", content: String((r && r.text) || "").slice(0, 3000) }),
       },
       {
+        name: "dsh_xwide_thought_chain_watchdog_scan",
+        description: "扫一个目录里所有启动器（.bat/.cmd/.ps1/.lnk），并读当前活模型 id，吐出可直接粘进 watchdog.modelLaunchers 的候选清单——省得你手敲绝对路径。传 dir=启动器所在目录（例：你的启动器文件夹全路径）。只读不写、不拉起任何引擎。",
+        parameters: { type: "object", additionalProperties: false, properties: { dir: { type: "string", description: "要扫的目录绝对路径" }, port: { type: "number", description: "读 /v1/models 的端口（默认取 watchdog.port）" } }, required: ["dir"] },
+        output: out, timeoutMs: 20000, isConcurrencySafe: () => true,
+        async execute(args) {
+          const a = args || {};
+          const dir = String(a.dir || "").trim();
+          if (!dir) return { ok: false, text: "要传 dir=要扫的目录。" };
+          let names;
+          try { names = fs.readdirSync(dir); } catch (e) { return { ok: false, text: "扫目录失败：" + (e && e.message) + "（dir=" + dir + "）" }; }
+          const exts = /\.(bat|cmd|ps1|lnk)$/i;
+          const files = names.filter((n) => exts.test(n)).sort();
+          const wdPort = Number(a.port) || S["watchdog.port"] || 8080;
+          const active = await readActiveModel(wdPort, {});
+          const lines = ["扫描目录：" + dir, "找到启动器 " + files.length + " 个："];
+          for (const f of files) {
+            const full = path.join(dir, f).replace(/\\/g, "\\");
+            const nf = f.toLowerCase().replace(/[^a-z0-9]/g, "");
+            const toks = active ? active.toLowerCase().split(/[-_.\s]+/).filter((t) => /[a-z]/.test(t) && t.length >= 3) : [];
+            const mark = active && toks.some((t) => nf.indexOf(t.replace(/[^a-z0-9]/g, "")) >= 0) ? "  ← 疑似当前模型" : "";
+            lines.push("· " + f + "  →  " + full + mark);
+          }
+          lines.push("");
+          lines.push("把你要的填进 watchdog.modelLaunchers，形如：");
+          lines.push(JSON.stringify(files.length ? { [active || "<模型id>"]: path.join(dir, files[0]).replace(/\\/g, "\\") } : {}, null, 0));
+          lines.push("（每个模型 id 来自 /v1/models；当前活模型=" + (active || "(读不到，8080 没起)") + "）");
+          return { ok: true, text: lines.join("\n"), files, active };
+        },
+        presentCall: (a) => ({ card: "generic", title: "dsh_xwide_thought_chain_watchdog_scan", content: String((a && a.dir) || "扫启动器") }),
+        presentResult: (_a, r) => ({ card: "generic", title: "dsh_xwide_thought_chain_watchdog_scan", content: String((r && r.text) || "").slice(0, 3000) }),
+      },
+      {
         name: "dsh_xwide_thought_chain_rollback",
         description: "退回机制：restore=true 把设置退到上一份备份；list=true 看账本（每次改动的 from/to 与备份路径）。本插件只写自己的 data\\ 目录，profile 配置一律只读。",
         parameters: { type: "object", additionalProperties: false, properties: { restore: { type: "boolean", description: "true=退回上一份设置备份" }, list: { type: "boolean", description: "true=打印改动账本" } }, required: [] },
@@ -436,6 +487,52 @@ export function apply(ctx, config = {}) {
     for (const d of defs) ctx.tools.register(d);
     logBoot("host: apply 开跑，注册 " + defs.length + " 个工具");
     console.log("[" + name + "] v" + version + " 已注册 " + defs.length + " 个工具（零依赖内核 lib\\selfcheck.mjs）");
+
+    // ⑥ 8080 看门狗：默认关（自杀红线——开启＝授权自动重启聊天后端）。逻辑全在 lib/watchdog.mjs。
+    if (S["watchdog.enabled"]) {
+      try {
+        const wdLog = String(S["watchdog.logPath"] || "").trim() || path.join(DATA, "watchdog.log");
+        const wdPort = S["watchdog.port"];
+        const localRouteOnly = !!S["watchdog.localRouteOnly"];
+        // 云端路由休眠闸：读 cordis.patch.yml，判当前聊天 baseURL 是否指向本地(localhost/127.0.0.1):wdPort。
+        // 读不到文件/解析失败 → 当作本地（保持看守，安全侧偏保守）。判据搬自 selfcheck C7。
+        const patchYml = path.join(PKG, "..", "..", "cordis.patch.yml");
+        function routeIsLocal() {
+          if (!localRouteOnly) return true;
+          try {
+            const txt = fs.readFileSync(patchYml, "utf8");
+            const re = /https?:\/\/(?:localhost|127\.0\.0\.1):(\d{1,5})/g;
+            let m, hit = false;
+            while ((m = re.exec(txt))) { if (Number(m[1]) === Number(wdPort)) { hit = true; break; } }
+            return hit;
+          } catch { return true; }
+        }
+        const wd = createWatchdog({
+          port: wdPort, downChecks: S["watchdog.downChecks"], cooldownSec: S["watchdog.cooldownSec"],
+          maxPerHour: S["watchdog.maxPerHour"], launcher: String(S["watchdog.launcher"] || "").trim(),
+          modelLaunchers: String(S["watchdog.modelLaunchers"] || "").trim(),
+          dryRun: !!S["watchdog.dryRun"], logPath: wdLog, fallbackLog: path.join(DATA, "watchdog.local.log"), injectLog: logBoot,
+        });
+        const iv = Math.max(15, Number(S["watchdog.intervalSec"]) || 60) * 1000;
+        let asleepLogged = false;
+        const timer = setInterval(() => {
+          if (!routeIsLocal()) {
+            if (!asleepLogged) { logBoot("host: 看门狗休眠（路由 baseURL 不指向本地 " + wdPort + "，疑似云端模型）"); asleepLogged = true; }
+            return;
+          }
+          if (asleepLogged) { logBoot("host: 看门狗苏醒（路由指回本地 " + wdPort + "）"); asleepLogged = false; }
+          wd.tick();
+        }, iv);
+        if (typeof timer.unref === "function") timer.unref(); // 别让看守定时器拖住宿主退出
+        logBoot("host: 看门狗已启动 port=" + wdPort + " interval=" + iv / 1000 + "s launcher=" + (S["watchdog.launcher"] || "(未配置，仅探测)") + " modelLaunchers=" + (String(S["watchdog.modelLaunchers"] || "").trim() ? "已配" : "无") + " localRouteOnly=" + localRouteOnly + " dryRun=" + !!S["watchdog.dryRun"]);
+        console.log("[" + name + "] 看门狗已启动（自发现选模型），port=" + wdPort);
+      } catch (e) {
+        logBoot("host: 看门狗启动失败：" + (e && e.message));
+        console.log("[" + name + "] 看门狗启动失败（不影响启动）：" + (e && e.message));
+      }
+    } else {
+      logBoot("host: 看门狗未启用（watchdog.enabled=false）");
+    }
 
     // 界面设置面板：命名空间＝entry id（xwide-thought-chain），schema 由 SETTINGS_SCHEMA 生成，每项带说明
     try {
@@ -492,6 +589,29 @@ export function apply(ctx, config = {}) {
                 else { const st0 = rulesStatus(cfgR); r = { ok: st0.ok, text: st0.lines.join("\n") }; }
                 logBoot("route: rules op=" + op + " ok=" + r.ok);
                 return reply({ ok: r.ok, text: r.text, rulesState: rulesStateOf(cfgR), cur: loadSettings(config) });
+              }
+              if (action === "scan-launchers") {
+                const dir = String(body.dir || S["watchdog.scanDir"] || "").trim();
+                if (!dir) return reply({ ok: false, text: "要先填扫描目录（watchdog.scanDir）。", files: [] });
+                let names = [];
+                try { names = fs.readdirSync(dir); } catch (e) { return reply({ ok: false, text: "扫目录失败：" + ((e && e.message) || e) + "（dir=" + dir + "）", files: [] }); }
+                const exts = body.all ? /\.(bat|cmd|ps1|lnk)$/i : /\.(bat|cmd)$/i;
+                // 默认筛掉「明显不是启动器」的垃圾项（卸载/安装/自测/停止/状态/复制/ readme 这类），列表短好挑。
+                // 勾「含杂项」(body.all)＝逃生门：连脚本一起列、且不筛垃圾，全给你看。
+                const NOISE = /(uninstall|setup|install|readme|license|copy|backup|update|upgrade|version|selftest|self-test|doctor|status|stop|kill|shutdown|reboot|cleanup|reset)/i;
+                const files = names.filter((n) => exts.test(n))
+                  .filter((n) => body.all || !NOISE.test(n)).sort()
+                  .map((n) => ({ name: n, path: path.join(dir, n) }));
+                const wdPort = Number(S["watchdog.port"]) || 8080;
+                const active = await readActiveModel(wdPort, {});
+                logBoot("route: scan-launchers dir=" + dir + " 命中=" + files.length + " active=" + (active || "(无)"));
+                return reply({ ok: true, files, active, dir });
+              }
+              if (action === "bootcheck") {
+                if (S["bootcheck.enabled"] === false) return reply({ ok: false, lines: ["体检闸已关闭（勾上「重启前体检闸」开关才用）。"], checked: 0, badCount: 0, crashHits: 0 });
+                const r = bootCheck({});
+                logBoot("route: bootcheck ok=" + r.ok + " checked=" + r.checked + " bad=" + r.badCount + " crashHits=" + r.crashHits);
+                return reply({ ok: r.ok, lines: r.lines, checked: r.checked, badCount: r.badCount, crashHits: r.crashHits });
               }
               return reply({
                 ok: true, version,

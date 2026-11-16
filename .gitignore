@@ -10,3 +10,10 @@ node_modules/
 data/boot.log
 data/rules-private/
 data/rules-public/
+data/watchdog.log
+data/watchdog.local.log
+data/good.json
+data/last-snapshot.json
+data/pending-review.json
+data/lessons-user.json
+*.retired-*
