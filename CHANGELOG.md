@@ -2,6 +2,19 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.31] - 2026-11-20
+
+界面验收不再求人：v0.1.30 验证当晚实测——DSH GUI 每次启动随机铸一个 token，只打在启动 stdout、不落盘；无头浏览器裸访问一律 401（`dsh web authentication required`），AI 自己进不了设置页，DOM 层验收只能靠用户截图。本版给这条通道补了自查入口。
+- **C10 GUI 无头验证通道**：新设置 `selfcheck.webUrlFile`——把启动器 stdout 重定向到日志文件（`.bat` 里 `启动器.bat > 日志 2>&1`），自检从日志里找带 `?token=` 的 GUI 地址并打码回显。有＝AI 可自开浏览器过页面做 DOM 断言；日志没 token 行/文件不存在＝报红并给补法。留空＝不检查（默认）。
+- token 值全程打码（`token=***`），自检输出零泄密；依旧零依赖、零绝对路径字面量、只读不改。
+
+## [0.1.30] - 2026-11-20
+
+判定器补上装载层：旧版第⑤⑥步「判定器/交活闸」只是注入给模型的提示文字，零强制——"我说改好了→你重启→没好"它一次都拦不住。本版把两层真测量固化进自检内核（C8/C9），只报不改。
+- **C8 改动↔装载对账**：源码面（工作区）与装载面（profile 的 local-plugins）同名插件的 `.js/.mjs/.cjs/.json` 逐文件比 SHA1；不一致直接报红并注明哪侧更新（源码新＝装载还是旧的；装载新＝源码没回写）。病例＝版本号那晚三方拷贝不同步、我拿管道绿当完成。目录对可用 `selfcheck.syncPairs` 自定义（`源=>装载;…`，支持占位符），留空走默认对。
+- **C9 缺件装载预检**：最近 N 小时（`selfcheck.loadSmokeHours`，默认 24，0=关）动过的插件，静态解析 `index.js` 里全部相对 import/require，逐个查盘上存在性——治「语法全绿、装载即崩」。病例＝npm 包缺 flip.js。
+- 两项均零依赖、零绝对路径字面量（根从 `import.meta.url` / `USERPROFILE` 派生）、只读不改（`safety.allowMutate` 纪律不变）。
+
 ## [0.1.29] - 2026-11-16
 
 发布物对齐：GitHub 首页渲染的是 README，光改 CHANGELOG 网页看着「没更新」；npm 包里那份 README 也停在旧版本号。
