@@ -1,6 +1,6 @@
 ![X-WIDE · I BELIEVE](./assets/xwide.png)
 
-# DSH-X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.29
+# DSH-X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.31
 
 > 把一条排障/交付的**思考链**装进 DeepSeek Harness，外加一个**零依赖开机自检**：DSH 升级、安装目录改名、插件丢失时，不再靠人肉从头摸形状。
 
@@ -11,9 +11,13 @@
 
 ---
 
-## 本版本更新了什么（v0.1.15 → v0.1.28）
+## 本版本更新了什么（v0.1.29 → v0.1.31）
 
 逐版明细见 [CHANGELOG.md](./CHANGELOG.md)，这一段是首页速览：
+
+- **C8 改动↔装载对账（v0.1.30）**：源码面 ↔ 装载面逐文件比 SHA1，专治「我改了、装载拷贝还是旧的、你重启没用」。`selfcheck.syncPairs` 自定义目录对。
+- **C9 缺件装载预检（v0.1.30）**：近 N 小时动过的插件，`index.js` 相对引用逐个查存在性——语法全绿≠装载不崩（病例 flip.js）。
+- **C10 GUI 无头验证通道（v0.1.31）**：GUI 启动 token 只打 stdout 不落盘，AI 的无头浏览器 401 进不了设置页。`selfcheck.webUrlFile` 指向启动器重定向日志后，自检从里面找带 `?token=` 的地址（打码回显）——通道在不在，从此是自检的一条，不是每次现场抓瞎。
 
 - **重启前体检闸**（`lib/bootcheck.mjs`，新增）：防「写程序把 DSH 写坏到开不了机」。两道关——用宿主自带 node 对 profile `local-plugins` 下**全部插件**的 `.js/.mjs/.cjs` 跑 `--check`；再 tail `harness.log` 扫已知装载崩溃签名。全绿才提示「可以重启」。总开关 `bootcheck.enabled`（默认开），**平时不扫不跑**，只在点「跑体检」那一刻动。
 - **8080 看门狗并入设置页**（`lib/watchdog.mjs`）：真 TCP 探活 → 连续 N 次确认才算 DOWN → 冷却＋每小时上限防重启风暴 → 按当前活模型查表拉起对应启动器 → 重启后复验端口；聊天路由切云端时自动休眠。默认关（开启＝授权引擎崩时自动重启本地后端）。
