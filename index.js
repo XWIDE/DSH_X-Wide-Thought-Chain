@@ -24,7 +24,10 @@ import { createWatchdog, readActiveModel } from "./lib/watchdog.mjs";
 import { bootCheck } from "./lib/bootcheck.mjs";
 
 export const name = "dsh-xwide-thought-chain";
-export const version = "0.1.29";
+export const version = "0.1.31";
+
+// 包根派生自自身位置（零盘符字面量纪律）。修既有 ReferenceError：watchdog 启动路径读 cordis.patch.yml 用到 PKG，此前从未定义 → 看门狗自 11-16 起每次装载即静默崩。
+const PKG = path.dirname(fileURLToPath(import.meta.url));
 export const inject = ["tools", "systemPrompt", "settings"];
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -70,6 +73,9 @@ export const SETTINGS_SCHEMA = [
   { key: "selfcheck.inventoryFile", type: "string", group: "selfcheck", def: "inventory.json", desc: "配方清单文件名（在插件 data\\ 下）。缺件检查按它逐条 existsSync。" },
   { key: "selfcheck.staleLogHours", type: "number", group: "selfcheck", min: 0, max: 336, def: 72, desc: "崩溃日志超过多少小时算陈旧（提示启动器没在用）。0＝不检查。" },
   { key: "selfcheck.routePort", type: "boolean", group: "selfcheck", def: true, desc: "路由端口对账：读 profile 的 cordis.patch.yml，凡 baseURL 写到的 localhost 端口都真去 TCP 连一次，没人监听就报红（判据搬自 _strata_guard_once.ps1；只检测不重启）。0＝关闭。" },
+  { key: "selfcheck.syncPairs", type: "string", group: "selfcheck", def: "", desc: "C8 改动↔装载对账的目录对：格式「源码目录=>装载目录」分号分隔，支持 %USERPROFILE% 占位符。留空＝默认对「工作区 default-workspace => 本 profile 的 local-plugins」。治的病例：源码改了、装载拷贝还是旧的，我说『改好了』你重启没用。" },
+  { key: "selfcheck.loadSmokeHours", type: "number", group: "selfcheck", min: 0, max: 336, def: 24, desc: "C9 缺件预检窗口：最近 N 小时动过的插件，逐条查 index.js 相对引用的文件在不在盘上（防 npm 包缺件装载即崩，病例 flip.js）。0＝关闭。" },
+  { key: "selfcheck.webUrlFile", type: "string", group: "selfcheck", def: "", desc: "C10 GUI 无头验证通道：启动器把 stdout 重定向到的日志文件（例：你的启动 .bat 里加一行 \"启动器.bat > 日志路径 2>&1\"，这里填那个日志路径），支持 %USERPROFILE% 占位符。自检从里面找带 ?token= 的 GUI 地址——有＝我（AI）能自己开浏览器过设置页做 DOM 验收；没有就报怎么补。留空＝不检查。病例：GUI 每次启动随机铸 token 只打 stdout 不落盘，无头浏览器 401 进不去，界面验收只能靠你截图。" },
   { key: "prompt.enabled", type: "boolean", group: "prompt", def: true, desc: "是否向 systemPrompt 注入这条链的一句话提醒。关掉后只剩工具。" },
   { key: "prompt.order", type: "number", group: "prompt", min: 0, max: 999, def: 138, desc: "systemPrompt 段落顺序（越小越靠前）。" },
   { key: "prompt.maxChars", type: "number", group: "prompt", min: 100, max: 1500, def: 700, desc: "注入文本最长字符数（每轮一次）。作者机器实测：700→420 字每轮约省 1.7 秒等量 prefill（冷读 112.8 tok/s）；前缀缓存命中约 90%，所以「稳定」比「短」更省。" },
