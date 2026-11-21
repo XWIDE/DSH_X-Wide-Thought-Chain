@@ -1,6 +1,6 @@
 ![X-WIDE · I BELIEVE](./assets/xwide.png)
 
-# DSH-X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.31
+# DSH-X-Wide-Thought-Chain · `dsh-xwide-thought-chain` v0.1.32
 
 > 把一条排障/交付的**思考链**装进 DeepSeek Harness，外加一个**零依赖开机自检**：DSH 升级、安装目录改名、插件丢失时，不再靠人肉从头摸形状。
 
@@ -11,9 +11,17 @@
 
 ---
 
-## 本版本更新了什么（v0.1.29 → v0.1.31）
+## 本版本更新了什么（v0.1.31 → v0.1.32）
 
 逐版明细见 [CHANGELOG.md](./CHANGELOG.md)，这一段是首页速览：
+
+- **⑦ diff+语法检查（`lib/diffcheck.mjs`）**：治「说改了、实际没执行＝白烧算力」。每说完一轮「我改了 X」，claims 声称项逐个查 git 改动清单（**盘上没有＝当场 GATE FAIL**），改动的 `js/cjs/mjs/json/py` 逐个过语法闸（`node --check` / `JSON.parse` / `py_compile`），全绿才 GATE PASS。只读不改任何文件。判据：模型说「改完了」不算数，diff＋语法绿了才算。
+- **⑧ 图像通道预热（`lib/visionwarm.mjs`，治「发两次才回答」）**：病根不在模型——引擎冷启动后第一条带图消息要先拉图像编码器上 GPU，显存不够时 GPU 起不来，引擎**静默等满 `STRATA_VISION_READY_S`（老配置 300 秒）**才转 CPU，期间占住唯一槽位。本项在引擎端口「断→通」那一刻先发一张 32×32 测试图（内嵌 192 字节 PNG，零依赖）把编码器热起来，等待挪到后台；同一轮引擎启动只热一次，失败只记日志不抛错。设置项 `visionwarm.enabled`（默认开）／`.port`／`.timeoutS`（200 秒）／`.intervalSec`（30 秒）。配套引擎侧（属用户配置，不在包内）：env 加 `"STRATA_VISION_READY_S": "20"`。**同机 A/B 实测**：预热开 → 首张带图请求 849 ms；预热关 → 10,158 ms，净差 ≈9.3 秒（GPU 常驻路径；先前从日志时间差推的「省 ≈100 秒」属 CPU 回退场景，A/B 已推翻）。
+- **LLM 流水 + 反代（`lib/llmflow.mjs` / `lib/llmproxy.mjs`）**：本机反向代理 + 逐请求记账（正文字符数／思考字符数／`finish_reason`／工具调用／耗时）落 `data/llm_flow.jsonl`，专抓「显示已完成、回复框空白」这类空回合——Qwen3 类模型 EOS 落在思考段里＝正文 0 字节，界面就是空白。
+- **脱敏**：作者名片里的邮箱已从公开物移除，只留 GitHub ／ B 站链接。
+
+<details>
+<summary>上一批（v0.1.29 → v0.1.31）</summary>
 
 - **C8 改动↔装载对账（v0.1.30）**：源码面 ↔ 装载面逐文件比 SHA1，专治「我改了、装载拷贝还是旧的、你重启没用」。`selfcheck.syncPairs` 自定义目录对。
 - **C9 缺件装载预检（v0.1.30）**：近 N 小时动过的插件，`index.js` 相对引用逐个查存在性——语法全绿≠装载不崩（病例 flip.js）。
@@ -25,6 +33,8 @@
 - **经验库自长**（`lib/lessons-user.mjs`）：使用者自己攒的「做错→做对」条目存 `data/lessons-user.json`，升级插件不动它、不进包；同条第二次命中自动 promoted。
 - **退役体外哨兵**：`lib/sentinel.mjs` → `sentinel.mjs.retired-2026-11-16`。原思路（注册开机自启计划任务裸起 DSH）作废——DSH 起来就带着看门狗，不必体外自启。
 - **发布前脱敏**：用户可见文案里的作者机器示例路径换成中性占位符，开机自检 C2「自家源码零死路径」由 NOT-PASS 转 PASS（现 7/7 全绿）；npm 包从 95 文件 / 1.58 MB 瘦到 18 文件 / 1.2 MB。
+
+</details>
 
 ---
 
