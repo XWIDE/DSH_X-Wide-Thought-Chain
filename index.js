@@ -21,10 +21,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { rulesStatus, rulesSnapshot, rulesMarkGood, rulesPublishPublic, rulesRestore, goodList, DEFAULT_FILES, DEFAULT_DIRS, DEFAULT_PUBLIC_FILES, DEFAULT_PUBLIC_DIRS } from "./lib/rules-git.mjs";
 import { createWatchdog, readActiveModel } from "./lib/watchdog.mjs";
+import { createVisionWarmer } from "./lib/visionwarm.mjs";
+import { startLlmProxy } from "./lib/llmproxy.mjs";
+import { diffCheck } from "./lib/diffcheck.mjs";
 import { bootCheck } from "./lib/bootcheck.mjs";
 
 export const name = "dsh-xwide-thought-chain";
-export const version = "0.1.31";
+export const version = "0.1.32";
 
 // 包根派生自自身位置（零盘符字面量纪律）。修既有 ReferenceError：watchdog 启动路径读 cordis.patch.yml 用到 PKG，此前从未定义 → 看门狗自 11-16 起每次装载即静默崩。
 const PKG = path.dirname(fileURLToPath(import.meta.url));
@@ -63,6 +66,8 @@ export const SETTINGS_GROUPS = [
   { id: "disk", zh: "④ 写入与退回", desc: "记账本、备份份数、以及“只报不自动改”的总开关" },
   { id: "rules", zh: "⑤ 规则库网上备份与发布", desc: "工作区的规则文件（AGENTS.md、词典、笔记、方法目录）→ 私有仓备份，随时可取回；勾了「好状态」并通过脱敏扫描，才允许把方法白名单发到公开仓。只在点按钮时跑 git，零自动同步。" },
   { id: "watchdog", zh: "⑥ 8080 看门狗", desc: "搬自 _strata_watchdog.ps1 的核心逻辑：TCP 真连接探活，连续确认 DOWN 后跑启动器拉起引擎，带冷却+小时上限防重启风暴，重启后复验端口。默认关——开启＝授权插件在引擎崩了时自动重启 8080（会杀当前聊天后端）。" },
+  { id: "diffcheck", zh: "⑦ diff+语法检查，减少细细节修改的错误循环", desc: "治「说改了、实际没执行＝白烧算力」：AI 报改完后调本工具——claims 声称项逐个查 git 改动清单（说改了 X、盘上没有＝当场 FAIL），改动的 js/cjs/mjs/json/py 逐个过语法闸，全绿才 GATE PASS。模型说「改完了」不算数，diff+语法绿了才算。只读不改任何文件。" },
+  { id: "visionwarm", zh: "⑧ 图像通道预热（治「发两次才回答」）", desc: "引擎冷启动后第一条带图消息要先拉图像编码器上 GPU；显存不够时 GPU 起不来，引擎会静默等满 STRATA_VISION_READY_S（老配置 300 秒）才转 CPU，期间占住唯一槽位 → 界面上就是「发两次才回答」。本项在引擎端口刚恢复、还没人聊天时，先发一张 32×32 测试图把编码器热起来，冷启动的等待发生在后台。同一轮引擎启动只热一次。" },
 ];
 export const SETTINGS_SCHEMA = [
   { key: "chain.steps", type: "string", group: "chain", def: "1,2,3,4,5,6", desc: "六步链启用哪几步（逗号分隔）。例：只跑取证段填 \"1,2\"；跳过复现填 \"1,2,4,5,6\"。" },
@@ -109,6 +114,14 @@ export const SETTINGS_SCHEMA = [
    { key: "watchdog.manualLock", type: "boolean", group: "watchdog", def: false, desc: "运行引擎总开关。false（默认）＝自动：看门狗自己从 /v1/models 认当前活模型，DOWN 时按 modelLaunchers 表拉对应启动器，你啥都不用选。true＝手动锁定：只看门狗拉你在下面下拉里挑的那个启动器（写进 watchdog.launcher）。想固定跑某个模型才勾。" },
    { key: "watchdog.launcher", type: "string", group: "watchdog", def: "", desc: "手动锁定要拉起的启动器绝对路径（勾「手动锁定」后，在下面勾选清单点谁就是谁，自动写这里；也可手敲绝对路径）。0.1.24 前这键没进 schema，导致勾选写了被后端拒、界面选不上——现补上。" },
    { key: "bootcheck.enabled", type: "boolean", group: "watchdog", def: true, desc: "重启前体检闸总开关。勾上（默认）＝界面显示「跑体检」按钮，点一下扫 local-plugins 全部插件语法＋harness.log 崩溃签名，绿了才提示可重启 DSH。不勾＝隐藏该功能（不想用就关掉，零开销，平时不扫不跑）。" },
+    { key: "diffcheck.enabled", type: "boolean", group: "diffcheck", def: true, desc: "总开关：勾上（默认）＝工具可用；不勾＝AI 调它时直接返回「已关闭」。旁边「跑自检」按钮＝当场验一次管道通不通（拿插件自己的规则库仓库跑一次真验收）。" },
+  { key: "visionwarm.enabled", type: "boolean", group: "visionwarm", def: true, desc: "总开关。勾上（默认）＝引擎端口掉线后重新恢复的那一刻，插件自动发一张 32×32 测试图把图像编码器热起来；关掉＝完全不发请求（引擎恢复原样，冷启动第一张图还是老行为）。" },
+  { key: "visionwarm.port", type: "number", group: "visionwarm", min: 1, max: 65535, def: 8080, advanced: true, desc: "引擎端口（本机聊天后端＝8080，一般别动）。预热请求发到 http://127.0.0.1:该端口/v1/chat/completions。" },
+  { key: "visionwarm.timeoutS", type: "number", group: "visionwarm", min: 10, max: 600, def: 200, advanced: true, desc: "预热请求最多等多少秒。CPU 回退热身实测要 119 秒，所以默认 200 秒给足；调到 30 秒以下基本只够测「编码器是不是热的」，不够等 CPU 热身完。" },
+  { key: "visionwarm.intervalSec", type: "number", group: "visionwarm", min: 10, max: 600, def: 30, advanced: true, desc: "多久探一次端口（只做 TCP 连接，很轻）。15–30 秒＝引擎恢复后半分钟内就开始预热；调到 300 秒以上＝省开销，但恢复后要等更久才热。" },
+  { key: "llmflow.enabled", type: "boolean", group: "llmflow", def: true, desc: "⑨ LLM 反代流水总开关（判据随需求改，第 1 次：原「同进程截 fetch」实测零命中，改成反代）。勾上（默认）＝插件在本机开一个转发口，把每条聊天请求（模型、max_tokens、几张图）和收回来的结果（用时、finish_reason、completion tokens、正文字符数）逐条写进 data\\llm_flow.jsonl，**专抓「跑完一轮但正文为空」**；关掉＝不开口。前提＝cordis.patch.yml 的 baseURL 指向 proxyPort 那个口。" },
+  { key: "llmflow.proxyPort", type: "number", group: "llmflow", min: 1024, max: 65535, def: 8097, advanced: true, desc: "反代监听的端口（默认 8097）。cordis.patch.yml 里两处 baseURL 要写成 http://localhost:这个口/v1，宿主流量才会经过这里；改这个值记得同步改配置，否则聊天直接连不上。" },
+  { key: "llmflow.port", type: "number", group: "llmflow", min: 1, max: 65535, def: 8080, advanced: true, desc: "真引擎端口（本机聊天后端＝8080，别动）。反代把请求原样转发到这个口。" },
 ];
 
 // ── 预设档位：一次点一下，把上面四类一次配好。数值来自本机实测（尺子台账：decode 80.2 tok/s、
@@ -472,6 +485,19 @@ export function apply(ctx, config = {}) {
         presentResult: (_a, r) => ({ card: "generic", title: "dsh_xwide_thought_chain_watchdog_scan", content: String((r && r.text) || "").slice(0, 3000) }),
       },
       {
+        name: "dsh_xwide_thought_chain_diffcheck",
+        description: "diff+语法检查，减少细细节修改的错误循环：治「说改了、实际没执行＝白烧算力」。对 git 仓库：claims 声称项逐个核验是否真出现在改动清单（说改了 X、git 里没有＝GATE FAIL），改动文件逐个过语法闸（js/cjs/mjs→node --check，json→JSON.parse，py→py_compile），全绿才 GATE PASS。AI 每说完一轮「我改了 X」立刻调一次，绿了才 commit。传 repo=仓库目录（留空用设置 diffcheck.repo）。只读不改任何文件。",
+        parameters: { type: "object", additionalProperties: false, properties: { repo: { type: "string", description: "要验收的 git 仓库绝对路径（留空＝设置里的 diffcheck.repo）" }, claims: { type: "array", items: { type: "string" }, description: "AI 声称改过的文件清单（相对仓库路径或绝对路径），逐个核验盘上是否真有改动" } }, required: [] },
+        output: out, timeoutMs: 60000, isConcurrencySafe: () => true,
+        async execute(args) {
+          const a = args || {};
+          if (S["diffcheck.enabled"] === false) return { ok: false, text: "diffcheck 开关已关（设置页⑦组勾回开关才用）。" };
+          return await diffCheck({ repo: String(a.repo || "").trim(), claims: Array.isArray(a.claims) ? a.claims : [] });
+        },
+        presentCall: (a) => ({ card: "generic", title: "dsh_xwide_thought_chain_diffcheck", content: String((a && a.repo) || "diff+语法检查") }),
+        presentResult: (_a, r) => ({ card: "generic", title: "dsh_xwide_thought_chain_diffcheck", content: String((r && r.text) || "").slice(0, 3000) }),
+      },
+      {
         name: "dsh_xwide_thought_chain_rollback",
         description: "退回机制：restore=true 把设置退到上一份备份；list=true 看账本（每次改动的 from/to 与备份路径）。本插件只写自己的 data\\ 目录，profile 配置一律只读。",
         parameters: { type: "object", additionalProperties: false, properties: { restore: { type: "boolean", description: "true=退回上一份设置备份" }, list: { type: "boolean", description: "true=打印改动账本" } }, required: [] },
@@ -538,6 +564,40 @@ export function apply(ctx, config = {}) {
       }
     } else {
       logBoot("host: 看门狗未启用（watchdog.enabled=false）");
+    }
+
+    // ⑧ 图像通道预热：引擎端口「断→通」时先热 vision，治冷启动第一张图卡 300 秒（默认开）。
+    // 只发一张 32×32 测试图；同一轮引擎启动只热一次；任何失败只记日志不抛错。
+    if (S["visionwarm.enabled"]) {
+      try {
+        const vwPort = Number(S["visionwarm.port"]) || 8080;
+        const vwTimeout = Number(S["visionwarm.timeoutS"]) || 200;
+        const warmer = createVisionWarmer({ port: vwPort, timeoutS: vwTimeout, settleSec: 2, log: logBoot });
+        const vwIv = Math.max(10, Number(S["visionwarm.intervalSec"]) || 30) * 1000;
+        const vtimer = setInterval(() => { Promise.resolve(warmer.tick()).catch(() => {}); }, vwIv);
+        if (typeof vtimer.unref === "function") vtimer.unref(); // 别拖住宿主退出
+        Promise.resolve(warmer.tick()).catch(() => {});          // 装载时先探一次（引擎已在跑就当场热）
+        logBoot("host: 图像通道预热已启动 port=" + vwPort + " interval=" + vwIv / 1000 + "s timeout=" + vwTimeout + "s");
+        console.log("[" + name + "] 图像通道预热已启动，port=" + vwPort);
+      } catch (e) {
+        logBoot("host: 图像通道预热启动失败：" + (e && e.message));
+        console.log("[" + name + "] 图像通道预热启动失败（不影响启动）：" + (e && e.message));
+      }
+    } else {
+      logBoot("host: 图像通道预热未启用（visionwarm.enabled=false）");
+    }
+
+    // ⑨ LLM 反代流水：本机 proxyPort 收请求 → 转发真引擎 → 逐条记 data\llm_flow.jsonl，专抓「正文为空 / compTok=0」。
+    // 前提＝cordis.patch.yml 的 baseURL 指到本端口；反代挂了宿主会直接报连不上（不静默）。
+    if (S["llmflow.enabled"]) {
+      try {
+        const r = startLlmProxy({ listenPort: Number(S["llmflow.proxyPort"]) || 8097, upstreamPort: Number(S["llmflow.port"]) || 8080, file: path.join(DATA, "llm_flow.jsonl"), log: logBoot });
+        logBoot("host: LLM 反代 " + r);
+      } catch (e) {
+        logBoot("host: LLM 反代启动失败：" + (e && e.message));
+      }
+    } else {
+      logBoot("host: LLM 反代未启用（llmflow.enabled=false）");
     }
 
     // 界面设置面板：命名空间＝entry id（xwide-thought-chain），schema 由 SETTINGS_SCHEMA 生成，每项带说明
@@ -618,6 +678,11 @@ export function apply(ctx, config = {}) {
                 const r = bootCheck({});
                 logBoot("route: bootcheck ok=" + r.ok + " checked=" + r.checked + " bad=" + r.badCount + " crashHits=" + r.crashHits);
                 return reply({ ok: r.ok, lines: r.lines, checked: r.checked, badCount: r.badCount, crashHits: r.crashHits });
+              }
+              if (action === "diffcheck-selftest") {
+                const r = await diffCheck({ repo: path.join(HERE, "data", "rules-private"), claims: [] });
+                logBoot("route: diffcheck-selftest verdict=" + (r.verdict || "?"));
+                return reply({ ok: !!r.ok, text: r.text });
               }
               return reply({
                 ok: true, version,

@@ -2,6 +2,13 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.1.32] - 2026-11-21
+
+治「发两次才回答」：本地引擎冷启动后第一条带图消息要先拉图像编码器上 GPU；显存余量不够时 GPU 起不来，引擎会静默等满 `STRATA_VISION_READY_S`（老配置 300 秒）才转 CPU，期间占住唯一槽位。本版把这段等待挪到后台。
+- **⑧ 图像通道预热**：新设置分组 `visionwarm`。引擎端口「断→通」的那一刻，插件自动发一张 32×32 测试图（`lib\visionwarm.mjs`，内嵌 192 字节 PNG，零依赖）把编码器热起来；同一轮引擎启动只热一次，失败只记日志不抛错。设置项：`visionwarm.enabled`（默认开）/ `.port`（8080）/ `.timeoutS`（200 秒，够 CPU 回退热身实测的 119 秒）/ `.intervalSec`（30 秒探一次端口）。
+- 配套引擎侧改动（不在插件内，用户配置）：`strata-swift-iq3_s.json` 的 `env` 加 `"STRATA_VISION_READY_S": "20"`，把「GPU 起不来」的静默等待从 300 秒压到 20 秒，快速失败转 CPU。
+- 实测读数（2026-11-21 16:59）：引擎健康检查 150 秒就绪；冷启动首张图直连引擎 `HTTP 200 8.8 s`（GPU 起得来时不需要等 300 秒，说明那 300 秒只在显存耗尽时触发）。
+
 ## [0.1.31] - 2026-11-20
 
 界面验收不再求人：v0.1.30 验证当晚实测——DSH GUI 每次启动随机铸一个 token，只打在启动 stdout、不落盘；无头浏览器裸访问一律 401（`dsh web authentication required`），AI 自己进不了设置页，DOM 层验收只能靠用户截图。本版给这条通道补了自查入口。
